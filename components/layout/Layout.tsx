@@ -1,20 +1,9 @@
-import React, { ReactNode, useEffect, useContext } from 'react';
+import React, { ReactNode, useEffect, useContext, useState } from 'react';
 import BottomNavbar from './BottomNavbar';
 import { supabase } from '../../services/supabaseClient';
 import { AuthContext } from '../../contexts/AuthContext';
-
-// Haversine distance function to check if a point is within a radius
-const haversineDistance = (coords1: { lat: number, lng: number }, coords2: { lat: number, lng: number }): number => {
-    const toRad = (x: number) => (x * Math.PI) / 180;
-    const R = 6371; // Earth radius in km
-    const dLat = toRad(coords2.lat - coords1.lat);
-    const dLon = toRad(coords2.lng - coords1.lng);
-    const lat1 = toRad(coords1.lat);
-    const lat2 = toRad(coords2.lat);
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-};
-
+import type { SafeZone } from '../../types';
+import { haversineDistance } from '../../utils/geolocation';
 
 interface LayoutProps {
   children: ReactNode;
@@ -22,12 +11,11 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const auth = useContext(AuthContext);
+  const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
 
   useEffect(() => {
     if (!auth?.user) return;
 
-    let safeZones: any[] = [];
-    
     // Fetch user's safe zones to monitor them
     const fetchSafeZones = async () => {
         const { data, error } = await supabase
@@ -36,20 +24,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             .eq('user_id', auth.user!.id);
         
         if (error) {
-            console.error("Could not fetch safe zones for notifications:", error);
+            console.error("Could not fetch safe zones for notifications:", error.message);
         } else {
-            safeZones = data;
+            setSafeZones(data || []);
         }
     };
     
     fetchSafeZones();
 
-    // Listen for new inserts on vibes and sos tables
-    const channel = supabase.channel('public-alerts')
+    // Channel to listen for new Vibe/SOS alerts
+    const alertChannel = supabase.channel('public-alerts')
       .on('postgres_changes', { event: 'INSERT', schema: 'public' },
         (payload) => {
-          // Re-fetch zones in case they changed in another tab.
-          fetchSafeZones(); 
           if (safeZones.length === 0) return;
 
           const newRecord = payload.new as any;
@@ -87,12 +73,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         }
       )
       .subscribe();
+      
+    // Channel to keep the safe zones list in sync across tabs/devices
+    const safeZoneChannel = supabase.channel(`safe-zones-user-${auth.user.id}`)
+      .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'safe_zones', filter: `user_id=eq.${auth.user.id}` },
+          () => fetchSafeZones()
+      ).subscribe();
+
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(alertChannel);
+      supabase.removeChannel(safeZoneChannel);
     };
 
-  }, [auth?.user]);
+  }, [auth?.user]); 
 
 
   return (

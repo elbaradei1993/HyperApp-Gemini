@@ -1,86 +1,54 @@
-import type { Vibe, SOS, Event } from '../types';
+// services/osmApiService.ts
 
-const OVERPASS_API_URL = "https://overpass-api.de/api/interpreter";
-
-interface OsmElement {
-  type: 'node' | 'way' | 'relation';
-  id: number;
-  lat?: number;
-  lon?: number;
-  tags?: { [key: string]: string };
+interface LatLng {
+  lat: number;
+  lng: number;
 }
 
 /**
- * Fetches the name of the most prominent nearby place for a given location using the Overpass API.
- * @param location The latitude and longitude to search around.
- * @returns The name of the place, or a default message if not found.
+ * Fetches a list of notable nearby places (amenities, etc.) from the Overpass API.
+ * This is used to provide contextual information to the AI.
+ * @param coords The latitude and longitude to search around.
+ * @param radiusMeters The search radius.
+ * @returns A promise that resolves to an array of unique place names.
  */
-export async function getNearbyPlaceName(location: { lat: number, lng: number }): Promise<string> {
-  const query = `
-    [out:json][timeout:10];
-    (
-      node(around:50, ${location.lat}, ${location.lng})[name];
-      way(around:50, ${location.lat}, ${location.lng})[name];
-      relation(around:50, ${location.lat}, ${location.lng})[name];
-    );
-    out tags 1;
-  `;
-  
-  try {
-    const response = await fetch(OVERPASS_API_URL, {
-      method: 'POST',
-      body: `data=${encodeURIComponent(query)}`,
-    });
-
-    if (!response.ok) throw new Error('Network response was not ok');
-    const data = await response.json();
-
-    if (data.elements && data.elements.length > 0) {
-      // Prefer the name of the first element found
-      return data.elements[0].tags.name;
-    }
-    return 'Unnamed location';
-  } catch (error) {
-    console.error("Failed to fetch from Overpass API:", error);
-    return 'Could not fetch place name';
-  }
-}
-
-/**
- * Fetches a list of nearby place names for the AI summary using the Overpass API.
- * @param location The latitude and longitude to search around.
- * @param radius The radius in meters.
- * @returns An array of place names.
- */
-export async function getNearbyPlacesList(location: { lat: number, lng: number }, radius: number = 1000): Promise<string[]> {
-   const query = `
+export const getNearbyPlacesList = async (coords: LatLng, radiusMeters: number): Promise<string[]> => {
+  // This query looks for common amenities that might influence a neighborhood's vibe.
+  const overpassQuery = `
     [out:json][timeout:25];
     (
-      node["amenity"~"cafe|restaurant|bar|pub|police|hospital|clinic|pharmacy|school|university|library|place_of_worship"](around:${radius},${location.lat},${location.lng});
-      node["shop"](around:${radius},${location.lat},${location.lng});
-      node["leisure"~"park|playground|stadium"](around:${radius},${location.lat},${location.lng});
+      node["amenity"~"bar|cafe|restaurant|police|hospital|bus_station|train_station|park|nightclub"](around:${radiusMeters},${coords.lat},${coords.lng});
+      way["amenity"~"bar|cafe|restaurant|police|hospital|bus_station|train_station|park|nightclub"](around:${radiusMeters},${coords.lat},${coords.lng});
+      relation["amenity"~"bar|cafe|restaurant|police|hospital|bus_station|train_station|park|nightclub"](around:${radiusMeters},${coords.lat},${coords.lng});
     );
-    out tags 10;
+    out body;
+    >;
+    out skel qt;
   `;
+  
+  const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
 
   try {
-    const response = await fetch(OVERPASS_API_URL, {
-        method: 'POST',
-        body: `data=${encodeURIComponent(query)}`,
-    });
-    if (!response.ok) throw new Error('Network response was not ok');
-    const data = await response.json();
-
-    if (data.elements && data.elements.length > 0) {
-      // Fix: Add a type assertion to `data.elements` to resolve type inference issues with the result of `response.json()`.
-      const names = (data.elements as OsmElement[])
-        .map((place) => place.tags?.name)
-        .filter((name): name is string => !!name);
-      return [...new Set(names)].slice(0, 5);
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Overpass API responded with status ${response.status}`);
     }
-    return [];
-  } catch (error) {
-    console.error("Failed to fetch places list from Overpass:", error);
-    return [];
+    const data = await response.json();
+    
+    // Extract unique names of places from the response tags.
+    const placeNames = new Set<string>();
+    if (data.elements) {
+      (data.elements as any[]).forEach(element => {
+        if (element.tags && element.tags.name) {
+          placeNames.add(element.tags.name);
+        }
+      });
+    }
+    
+    return Array.from(placeNames);
+
+  } catch (error: any) {
+    console.error("Failed to fetch from Overpass API:", error.message);
+    return []; // Return an empty array on failure to prevent crashes.
   }
-}
+};

@@ -2,6 +2,7 @@
   "name": "HyperAPP - Community Safety",
   "description": "A mobile-first web app for community safety: reporting vibes, SOS alerts, events, and viewing live neighborhood activity on a map.",
   "requestFramePermissions": [
-    "geolocation"
+    "geolocation",
+    "microphone"
   ]
 }

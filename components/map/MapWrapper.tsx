@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../services/supabaseClient';
@@ -5,7 +6,7 @@ import type { Vibe, SOS, Event } from '../../types';
 import { VibeType } from '../../types';
 import { FireIcon } from '../ui/Icons';
 import AreaSummaryModal from './AreaSummaryModal';
-import { getNearbyPlaceName, getNearbyPlacesList } from '../../services/osmApiService';
+import { haversineDistance } from '../../utils/geolocation';
 
 declare const L: any;
 
@@ -20,15 +21,27 @@ L.Icon.Default.mergeOptions({
 const getVibeIcon = (vibeType: VibeType) => {
   const color = {
     [VibeType.Safe]: 'green',
-    [VibeType.Uncertain]: 'yellow',
-    [VibeType.Tense]: 'orange',
-    [VibeType.Unsafe]: 'red',
-  }[vibeType];
+    [VibeType.Calm]: 'blue',
+    [VibeType.Noisy]: 'yellow',
+    [VibeType.LGBTQIAFriendly]: 'violet',
+    [VibeType.Suspicious]: 'orange',
+    [VibeType.Dangerous]: 'red',
+  }[vibeType as VibeType] || 'grey'; // Fallback to grey for old/invalid data
+
   return new L.Icon({
     iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
     iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
   });
+};
+
+const vibeDisplayNameMapping: Record<string, string> = {
+    [VibeType.Safe]: 'Safe',
+    [VibeType.Calm]: 'Calm',
+    [VibeType.Noisy]: 'Noisy',
+    [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly',
+    [VibeType.Suspicious]: 'Suspicious',
+    [VibeType.Dangerous]: 'Dangerous',
 };
 
 const sosIcon = new L.Icon({
@@ -56,6 +69,7 @@ const MapWrapper: React.FC = () => {
   const heatLayerRef = useRef<any>(null);
   const markerClusterGroupRef = useRef<any>(null);
   const markersRef = useRef<Record<string, any>>({});
+  const subscriptionRef = useRef<any>(null);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -78,89 +92,8 @@ const MapWrapper: React.FC = () => {
     );
   }, []);
 
-  const handleGenerateSummary = async (latlng: { lat: number, lng: number }) => {
-    setSummaryModalState({ isOpen: true, isLoading: true, summary: null, error: null });
-
-    try {
-        const allVibes = (await supabase.from('vibes').select('*')).data || [];
-        const nearbyVibes = allVibes.filter(v => v.location && haversineDistance(latlng, v.location) <= 1);
-        
-        const allSos = (await supabase.from('sos').select('*').eq('resolved', false)).data || [];
-        const nearbySos = allSos.filter(s => s.location && haversineDistance(latlng, s.location) <= 1);
-        
-        const allEvents = (await supabase.from('events').select('*')).data || [];
-        const nearbyEvents = allEvents.filter(e => e.location && haversineDistance(latlng, e.location) <= 1);
-        
-        // Fetch nearby places from OSM to enrich the prompt
-        const nearbyPlaces = await getNearbyPlacesList(latlng, 1000);
-
-        let prompt = "You are a local community safety assistant. Based on the following real-time data for a 1km radius from OpenStreetMap and community reports, provide a concise and helpful summary for a user. Summarize the current situation in a friendly, easy-to-understand paragraph. Mention the dominant vibe and any important events, alerts, or nearby places. Conclude with a practical tip. If all data fields are empty or contain 'None', state that there are no recent community reports for this area and provide a general, universally applicable safety tip.\n\n--- DATA ---\n";
-
-        if (nearbyVibes && nearbyVibes.length > 0) {
-            const vibeCounts = nearbyVibes.reduce((acc: any, vibe: Vibe) => {
-                acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
-                return acc;
-            }, {});
-            const dominantVibe = Object.keys(vibeCounts).reduce((a, b) => vibeCounts[a] > vibeCounts[b] ? a : b);
-            prompt += `- Vibe Reports: ${nearbyVibes.length} total. The dominant vibe is "${dominantVibe}".\n`;
-        } else {
-            prompt += "- Vibe Reports: None in this area.\n";
-        }
-
-        if (nearbySos.length > 0) { prompt += `- Active SOS Alerts: ${nearbySos.length} active alert(s).\n`; }
-        if (nearbyEvents.length > 0) { prompt += `- Upcoming Events: ${nearbyEvents.map(e => `"${e.title}"`).join(', ')}\n`; }
-        if (nearbyPlaces.length > 0) { prompt += `- Nearby Points of Interest: ${nearbyPlaces.join(', ')}.\n`; }
-        prompt += "--- END DATA ---";
-
-        const { GoogleGenAI } = await import('@google/genai');
-        const apiKey = process.env.API_KEY;
-        if (!apiKey) throw new Error("API key is not configured. Cannot generate summary.");
-        const ai = new GoogleGenAI({ apiKey });
-        
-        const responseStream = await ai.models.generateContentStream({
-            model: 'gemini-2.5-flash', contents: prompt, config: { thinkingConfig: { thinkingBudget: 0 } },
-        });
-
-        for await (const chunk of responseStream) {
-            setSummaryModalState(prev => ({ ...prev, summary: (prev.summary || '') + chunk.text }));
-        }
-
-    } catch (err: any) {
-        setSummaryModalState(prev => ({ ...prev, error: err.message || "Failed to generate summary." }));
-    } finally {
-        setSummaryModalState(prev => ({ ...prev, isLoading: false }));
-    }
-  };
-
-  const handleMapClickForZone = (e: any) => {
-    navigate('/profile', { state: { newZoneLocation: e.latlng } });
-  };
-
-  useEffect(() => {
-    if (mapContainerRef.current && !mapRef.current && userLocation) {
-      const map = L.map(mapContainerRef.current, { contextmenu: true }).setView(userLocation, 13);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-      }).addTo(map);
-      
-      mapRef.current = map;
-      markerClusterGroupRef.current = L.markerClusterGroup();
-      map.addLayer(markerClusterGroupRef.current);
-    }
-    
-    if (mapRef.current) {
-        mapRef.current.off('contextmenu').off('click');
-        if (isSettingZone) {
-            mapRef.current.on('click', handleMapClickForZone);
-        } else {
-            mapRef.current.on('contextmenu', (e: any) => handleGenerateSummary(e.latlng));
-        }
-    }
-
-  }, [userLocation, isSettingZone]);
-
   const addOrUpdateMarker = (item: Vibe | SOS | Event, type: 'vibe' | 'sos' | 'event') => {
-    if (!item.location) return;
+    if (!item.location || !markerClusterGroupRef.current) return;
     const markerId = `${type}-${item.id}`;
     const existingMarker = markersRef.current[markerId];
     let icon, basePopupContent;
@@ -168,7 +101,8 @@ const MapWrapper: React.FC = () => {
     if (type === 'vibe') {
         const vibe = item as Vibe;
         icon = getVibeIcon(vibe.vibe_type);
-        basePopupContent = `<strong>Vibe:</strong> ${vibe.vibe_type}<br><strong>By:</strong> ${vibe.profiles?.username || 'anonymous'}`;
+        const displayName = vibeDisplayNameMapping[vibe.vibe_type] || vibe.vibe_type;
+        basePopupContent = `<strong>Vibe:</strong> ${displayName}<br><strong>By:</strong> ${vibe.profiles?.username || 'anonymous'}`;
     } else if (type === 'sos') {
         const sos = item as SOS;
         if (sos.resolved) { removeMarker(markerId); return; }
@@ -180,34 +114,21 @@ const MapWrapper: React.FC = () => {
         basePopupContent = `<strong>Event:</strong> ${event.title}<br><strong>By:</strong> ${event.profiles?.username || 'anonymous'}`;
     }
     
-    const initialPopupContent = (placeName: string) => `
-        <div class="space-y-2 max-w-xs">
-            <div class="font-bold text-lg">${placeName}</div>
-            <div>${basePopupContent}</div>
-        </div>
-    `;
+    const popupContent = `<div class="space-y-2 max-w-xs"><div>${basePopupContent}</div></div>`;
 
     if (existingMarker) {
         existingMarker.setLatLng([item.location.lat, item.location.lng]);
         existingMarker.setIcon(icon);
-        existingMarker.getPopup().setContent(initialPopupContent('Loading place...'));
+        existingMarker.bindPopup(popupContent);
     } else {
-        const newMarker = L.marker([item.location.lat, item.location.lng], { icon });
-        newMarker.bindPopup(initialPopupContent('Loading place...'));
+        const newMarker = L.marker([item.location.lat, item.location.lng], { icon }).bindPopup(popupContent);
         markersRef.current[markerId] = newMarker;
         markerClusterGroupRef.current.addLayer(newMarker);
     }
-
-    // Asynchronously update popup with place name from OSM
-    getNearbyPlaceName(item.location).then(placeName => {
-        const marker = markersRef.current[markerId];
-        if(marker && marker.getPopup()){
-            marker.getPopup().setContent(initialPopupContent(placeName));
-        }
-    });
   };
 
   const removeMarker = (markerId: string) => {
+    if (!markerClusterGroupRef.current) return;
     const marker = markersRef.current[markerId];
     if (marker) {
       markerClusterGroupRef.current.removeLayer(marker);
@@ -215,43 +136,140 @@ const MapWrapper: React.FC = () => {
     }
   };
 
+  // Main effect for map initialization and data handling to fix race conditions
   useEffect(() => {
-    const fetchInitialData = async () => {
-      const { data: vibesData } = await supabase.from('vibes').select('*, profiles(username)');
-      const { data: sosData } = await supabase.from('sos').select('*, profiles(username)');
-      const { data: eventsData } = await supabase.from('events').select('*, profiles(username)');
+    if (mapContainerRef.current && !mapRef.current && userLocation) {
+      const map = L.map(mapContainerRef.current, { contextmenu: true }).setView(userLocation, 13);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+      }).addTo(map);
+      
+      mapRef.current = map;
+      markerClusterGroupRef.current = L.markerClusterGroup();
+      map.addLayer(markerClusterGroupRef.current);
+      
+      // --- DATA FETCHING & SUBSCRIPTIONS ---
+      // Now that the map is guaranteed to exist, we can fetch data and subscribe.
+      const fetchInitialData = async () => {
+        const { data: vibesData } = await supabase.from('vibes').select('*, profiles(username)');
+        const { data: sosData } = await supabase.from('sos').select('*, profiles(username)');
+        const { data: eventsData } = await supabase.from('events').select('*, profiles(username)');
 
-      if (vibesData) vibesData.forEach(v => addOrUpdateMarker(v as Vibe, 'vibe'));
-      if (sosData) sosData.forEach(s => addOrUpdateMarker(s as SOS, 'sos'));
-      if (eventsData) eventsData.forEach(e => addOrUpdateMarker(e as Event, 'event'));
+        if (vibesData) vibesData.forEach(v => addOrUpdateMarker(v as Vibe, 'vibe'));
+        if (sosData) sosData.forEach(s => addOrUpdateMarker(s as SOS, 'sos'));
+        if (eventsData) eventsData.forEach(e => addOrUpdateMarker(e as Event, 'event'));
+        setInitialDataLoaded(true);
+      };
 
-      setInitialDataLoaded(true);
+      const handleRecordChange = (payload: any) => {
+          const table = payload.table;
+          let record = payload.new as any;
+          const oldRecord = payload.old as any;
+          let type: 'vibe' | 'sos' | 'event' | null = null;
+          if (table === 'vibes') type = 'vibe';
+          else if (table === 'sos') type = 'sos';
+          else if (table === 'events') type = 'event';
+          if (!type) return;
+
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              addOrUpdateMarker(record as any, type!);
+          } else if (payload.eventType === 'DELETE') {
+              removeMarker(`${type}-${oldRecord.id}`);
+          }
+      };
+      
+      fetchInitialData();
+
+      if (!subscriptionRef.current) {
+        subscriptionRef.current = supabase.channel('public-data-changes')
+          .on('postgres_changes', { event: '*', schema: 'public' }, handleRecordChange)
+          .subscribe();
+      }
+    }
+    
+    return () => {
+      if (subscriptionRef.current) {
+        supabase.removeChannel(subscriptionRef.current);
+        subscriptionRef.current = null;
+      }
     };
-    fetchInitialData();
+  }, [userLocation]);
 
-    const subs = supabase.channel('public-data-changes')
-      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
-            const table = payload.table;
-            let record = payload.new as any;
-            const oldRecord = payload.old as any;
-            let type: 'vibe' | 'sos' | 'event' | null = null;
-            if (table === 'vibes') type = 'vibe';
-            else if (table === 'sos') type = 'sos';
-            else if (table === 'events') type = 'event';
-            if (!type) return;
+  // Effect for map interaction handlers
+  useEffect(() => {
+    const handleMapClickForZone = (e: any) => {
+        navigate('/profile', { state: { newZoneLocation: e.latlng } });
+    };
+    const handleGenerateSummary = async (latlng: { lat: number, lng: number }) => {
+        setSummaryModalState({ isOpen: true, isLoading: true, summary: null, error: null });
+        try {
+            // OPTIMIZED: Use RPC to get nearby data efficiently
+            const { data: nearbyVibes, error: vibesError } = await supabase.rpc('get_nearby_vibes', {
+                user_lat: latlng.lat,
+                user_lng: latlng.lng,
+                radius_km: 1
+            });
+            if (vibesError) throw new Error(`Could not fetch vibes: ${vibesError.message}`);
 
-            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-                 supabase.from(table).select('*, profiles(username)').eq('id', record.id).single().then(({data}) => {
-                    if (data) addOrUpdateMarker(data as any, type!);
-                });
-            } else if (payload.eventType === 'DELETE') {
-                removeMarker(`${type}-${oldRecord.id}`);
+            // For SOS and Events, client-side filtering is acceptable for now as they are less frequent.
+            const allSos = (await supabase.from('sos').select('*').eq('resolved', false)).data || [];
+            const nearbySos = allSos.filter(s => s.location && haversineDistance(latlng, s.location) <= 1);
+            
+            const allEvents = (await supabase.from('events').select('*')).data || [];
+            const nearbyEvents = allEvents.filter(e => e.location && haversineDistance(latlng, e.location) <= 1);
+    
+            let prompt = "You are a local community safety assistant. Based on the following real-time data for a 1km radius, provide a concise and helpful summary for a user. Summarize the current situation in a friendly, easy-to-understand paragraph. Mention the dominant vibe and any important events or alerts. Conclude with a practical tip. If all data fields are empty or contain 'None', state that there are no recent community reports for this area and provide a general, universally applicable safety tip.\n\n--- DATA ---\n";
+    
+            if (nearbyVibes && nearbyVibes.length > 0) {
+                const vibeCounts = nearbyVibes.reduce((acc: any, vibe: Vibe) => {
+                    acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
+                    return acc;
+                }, {});
+                const dominantVibe = Object.keys(vibeCounts).reduce((a, b) => vibeCounts[a] > vibeCounts[b] ? a : b);
+                prompt += `- Vibe Reports: ${nearbyVibes.length} total. The dominant vibe is "${vibeDisplayNameMapping[dominantVibe] || dominantVibe}".\n`;
+            } else {
+                prompt += "- Vibe Reports: None in this area.\n";
             }
+    
+            if (nearbySos.length > 0) { prompt += `- Active SOS Alerts: ${nearbySos.length} active alert(s).\n`; }
+            if (nearbyEvents.length > 0) { prompt += `- Upcoming Events: ${nearbyEvents.map(e => `"${e.title}"`).join(', ')}\n`; }
+            prompt += "--- END DATA ---";
+    
+            const { GoogleGenAI } = await import('@google/genai');
+            
+            let apiKey: string | undefined;
+            try {
+                apiKey = process.env.API_KEY;
+            } catch(e) { /* ignore */ }
+    
+            if (!apiKey) throw new Error("API key is not configured. Cannot generate summary.");
+            const ai = new GoogleGenAI({ apiKey });
+            
+            const responseStream = await ai.models.generateContentStream({
+                model: 'gemini-2.5-flash', contents: prompt, config: { thinkingConfig: { thinkingBudget: 0 } },
+            });
+    
+            for await (const chunk of responseStream) {
+                setSummaryModalState(prev => ({ ...prev, summary: (prev.summary || '') + chunk.text }));
+            }
+    
+        } catch (err: any) {
+            setSummaryModalState(prev => ({ ...prev, error: err.message || "Failed to generate summary." }));
+        } finally {
+            setSummaryModalState(prev => ({ ...prev, isLoading: false }));
         }
-      ).subscribe();
-    return () => { supabase.removeChannel(subs); };
-  }, []);
+    };
+    if (mapRef.current) {
+        mapRef.current.off('contextmenu').off('click');
+        if (isSettingZone) {
+            mapRef.current.on('click', handleMapClickForZone);
+        } else {
+            mapRef.current.on('contextmenu', (e: any) => handleGenerateSummary(e.latlng));
+        }
+    }
+  }, [isSettingZone, navigate]);
   
+    // Effect for handling heatmap toggle
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !initialDataLoaded) return;
@@ -260,16 +278,21 @@ const MapWrapper: React.FC = () => {
             if (heatLayerRef.current) { map.removeLayer(heatLayerRef.current); heatLayerRef.current = null; }
             if (showHeatmap) {
                 if (markerClusterGroupRef.current) map.removeLayer(markerClusterGroupRef.current);
-                const vibeIntensityMap: Record<VibeType, number> = {
-                    [VibeType.Safe]: 0.2, [VibeType.Uncertain]: 0.5, [VibeType.Tense]: 0.8, [VibeType.Unsafe]: 1.0,
+                const vibeIntensityMap: Record<string, number> = {
+                    [VibeType.Safe]: 0.2,
+                    [VibeType.Calm]: 0.3,
+                    [VibeType.Noisy]: 0.5,
+                    [VibeType.LGBTQIAFriendly]: 0.2,
+                    [VibeType.Suspicious]: 0.7,
+                    [VibeType.Dangerous]: 1.0,
                 };
                 const heatmapData = (vibesData as Vibe[]).filter(v => v.location).map(v => 
-                    [v.location.lat, v.location.lng, vibeIntensityMap[v.vibe_type] || 0.5]
-                );
+                    [v.location.lat, v.location.lng, vibeIntensityMap[v.vibe_type] || 0]
+                ).filter(v => v[2] > 0);
                 if (heatmapData.length > 0) {
                     heatLayerRef.current = L.heatLayer(heatmapData, {
                         radius: 30, blur: 25, maxZoom: 17,
-                        gradient: { 0.2: 'green', 0.5: 'yellow', 0.8: 'orange', 1.0: 'red' }
+                        gradient: { 0.2: 'green', 0.3: 'blue', 0.5: 'yellow', 0.7: 'orange', 1.0: 'red' }
                     }).addTo(map);
                 }
             } else {
@@ -283,17 +306,6 @@ const MapWrapper: React.FC = () => {
       const newLoc: [number, number] = [p.coords.latitude, p.coords.longitude];
       if (mapRef.current) mapRef.current.flyTo(newLoc, 15);
     });
-  };
-
-  const haversineDistance = (coords1: { lat: number, lng: number }, coords2: { lat: number, lng: number }): number => {
-    const toRad = (x: number) => (x * Math.PI) / 180;
-    const R = 6371;
-    const dLat = toRad(coords2.lat - coords1.lat);
-    const dLon = toRad(coords2.lng - coords1.lng);
-    const lat1 = toRad(coords1.lat);
-    const lat2 = toRad(coords2.lat);
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
   
   if (!userLocation) {

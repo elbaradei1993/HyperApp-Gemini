@@ -1,4 +1,3 @@
-
 import { User } from '@supabase/supabase-js';
 
 export interface Profile {
@@ -12,9 +11,11 @@ export interface Profile {
 
 export enum VibeType {
   Safe = 'safe',
-  Uncertain = 'uncertain',
-  Tense = 'tense',
-  Unsafe = 'unsafe'
+  Calm = 'calm',
+  Noisy = 'noisy',
+  LGBTQIAFriendly = 'lgbtqia_friendly',
+  Suspicious = 'suspicious',
+  Dangerous = 'dangerous'
 }
 
 export interface Vibe {
@@ -46,4 +47,13 @@ export interface Event {
   description: string;
   event_time: string;
   profiles: { username: string };
+}
+
+export interface SafeZone {
+  id: number;
+  created_at: string;
+  user_id: string;
+  name: string;
+  location: { lat: number; lng: number };
+  radius_km: number;
 }

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { AuthContext } from '../contexts/AuthContext';
-import type { Profile as ProfileType, Vibe, SOS } from '../types';
+import type { Profile as ProfileType, Vibe, SOS, SafeZone } from '../types';
 import { VibeType } from '../types';
 import { TrashIcon, LocationMarkerIcon } from '../components/ui/Icons';
 
@@ -16,7 +16,7 @@ const Profile: React.FC = () => {
   const auth = useContext(AuthContext);
 
   // State for Safe Zones feature
-  const [safeZones, setSafeZones] = useState<any[]>([]);
+  const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
   const [zonesLoading, setZonesLoading] = useState(true);
   const [isAddingZone, setIsAddingZone] = useState(false);
   const [newZoneName, setNewZoneName] = useState('');
@@ -72,8 +72,8 @@ const Profile: React.FC = () => {
           if (!response.ok) throw new Error('Failed to fetch from Nominatim');
           const data = await response.json();
           setNewZoneAddress(data.display_name || 'Address not found');
-        } catch (error) {
-          console.error("Failed to fetch address:", error);
+        } catch (error: any) {
+          console.error("Failed to fetch address:", error.message);
           setNewZoneAddress('Could not fetch address');
         } finally {
           setIsFetchingAddress(false);
@@ -90,7 +90,7 @@ const Profile: React.FC = () => {
     if (!auth?.user) return;
     setProfileLoading(true);
     const { data, error } = await supabase.from('profiles').select('*').eq('id', auth.user.id).single();
-    if (error) console.error('Error fetching profile', error);
+    if (error) console.error('Error fetching profile:', error.message);
     else if (data) {
       setProfile(data);
       setUsername(data.username);
@@ -113,7 +113,7 @@ const Profile: React.FC = () => {
     if (!auth?.user) return;
     setZonesLoading(true);
     const { data, error } = await supabase.from('safe_zones').select('*').eq('user_id', auth.user.id).order('created_at');
-    if (error) console.error('Error fetching safe zones', error);
+    if (error) console.error('Error fetching safe zones:', error.message);
     else setSafeZones(data || []);
     setZonesLoading(false);
   };
@@ -167,12 +167,15 @@ const Profile: React.FC = () => {
 
   const handleLogout = async () => await supabase.auth.signOut();
   
-  const VIBE_CONFIG = {
-    [VibeType.Safe]: { emoji: '😊', textClass: 'text-green-300' },
-    [VibeType.Uncertain]: { emoji: '🤔', textClass: 'text-yellow-300' },
-    [VibeType.Tense]: { emoji: '😬', textClass: 'text-orange-300' },
-    [VibeType.Unsafe]: { emoji: '😡', textClass: 'text-red-300' },
+  const VIBE_CONFIG: Record<string, { emoji: string; textClass: string; displayName: string }> = {
+    [VibeType.Safe]: { emoji: '😊', textClass: 'text-green-300', displayName: 'Safe' },
+    [VibeType.Calm]: { emoji: '😌', textClass: 'text-blue-300', displayName: 'Calm' },
+    [VibeType.Noisy]: { emoji: '🔊', textClass: 'text-yellow-300', displayName: 'Noisy' },
+    [VibeType.LGBTQIAFriendly]: { emoji: '🏳️‍🌈', textClass: 'text-purple-300', displayName: 'LGBTQIA+ Friendly' },
+    [VibeType.Suspicious]: { emoji: '🤨', textClass: 'text-orange-300', displayName: 'Suspicious' },
+    [VibeType.Dangerous]: { emoji: '😠', textClass: 'text-red-300', displayName: 'Dangerous' },
   };
+  const DEFAULT_VIBE_CONFIG = { emoji: '❓', textClass: 'text-gray-400', displayName: 'Legacy Vibe' };
 
   const renderActivity = () => {
     if (activityLoading) return <p>Loading activity...</p>;
@@ -186,11 +189,12 @@ const Profile: React.FC = () => {
           
           if (isVibe) {
             const vibe = report as Vibe;
+            const config = VIBE_CONFIG[vibe.vibe_type] || DEFAULT_VIBE_CONFIG;
             return (
               <div key={`vibe-${vibe.id}`} className="flex items-center space-x-3 text-sm">
-                <span className="text-xl">{VIBE_CONFIG[vibe.vibe_type].emoji}</span>
+                <span className="text-xl">{config.emoji}</span>
                 <div className="flex-grow">
-                  <p className="font-semibold capitalize">Reported a "{vibe.vibe_type}" vibe</p>
+                  <p className="font-semibold">Reported a "{config.displayName}" vibe</p>
                   <p className="text-xs text-gray-500">{date}</p>
                 </div>
               </div>

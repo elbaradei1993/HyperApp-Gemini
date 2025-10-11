@@ -2,14 +2,22 @@ import React, { useState, useEffect, useContext } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { AuthContext } from '../contexts/AuthContext';
 import { VibeType, Vibe } from '../types';
-import { LocationMarkerIcon, LightBulbIcon } from '../components/ui/Icons';
+import { LocationMarkerIcon, LightBulbIcon, SearchIcon, MicrophoneIcon } from '../components/ui/Icons';
+import { getNearbyPlacesList } from '../services/osmApiService';
+import { haversineDistance } from '../utils/geolocation';
+import { GoogleGenAI } from '@google/genai';
+import LiveAssistantModal from '../components/services/LiveAssistantModal';
 
-const VIBE_CONFIG = {
-  [VibeType.Safe]: { emoji: '😊', color: 'green', textClass: 'text-green-300', bgClass: 'bg-green-500/20', barClass: 'bg-green-500' },
-  [VibeType.Uncertain]: { emoji: '🤔', color: 'yellow', textClass: 'text-yellow-300', bgClass: 'bg-yellow-500/20', barClass: 'bg-yellow-500' },
-  [VibeType.Tense]: { emoji: '😬', color: 'orange', textClass: 'text-orange-300', bgClass: 'bg-orange-500/20', barClass: 'bg-orange-500' },
-  [VibeType.Unsafe]: { emoji: '😡', color: 'red', textClass: 'text-red-300', bgClass: 'bg-red-500/20', barClass: 'bg-red-500' },
+const VIBE_CONFIG: Record<string, { emoji: string; color: string; textClass: string; bgClass: string; barClass: string; displayName: string; }> = {
+  [VibeType.Safe]: { emoji: '😊', color: 'green', textClass: 'text-green-300', bgClass: 'bg-green-500/20', barClass: 'bg-green-500', displayName: 'Safe' },
+  [VibeType.Calm]: { emoji: '😌', color: 'blue', textClass: 'text-blue-300', bgClass: 'bg-blue-500/20', barClass: 'bg-blue-500', displayName: 'Calm' },
+  [VibeType.Noisy]: { emoji: '🔊', color: 'yellow', textClass: 'text-yellow-300', bgClass: 'bg-yellow-500/20', barClass: 'bg-yellow-500', displayName: 'Noisy' },
+  [VibeType.LGBTQIAFriendly]: { emoji: '🏳️‍🌈', color: 'purple', textClass: 'text-purple-300', bgClass: 'bg-purple-500/20', barClass: 'bg-purple-500', displayName: 'LGBTQIA+ Friendly' },
+  [VibeType.Suspicious]: { emoji: '🤨', color: 'orange', textClass: 'text-orange-300', bgClass: 'bg-orange-500/20', barClass: 'bg-orange-500', displayName: 'Suspicious' },
+  [VibeType.Dangerous]: { emoji: '😠', color: 'red', textClass: 'text-red-300', bgClass: 'bg-red-500/20', barClass: 'bg-red-500', displayName: 'Dangerous' },
 };
+const DEFAULT_VIBE_CONFIG = { emoji: '❓', color: 'gray', textClass: 'text-gray-400', bgClass: 'bg-gray-500/20', barClass: 'bg-gray-500', displayName: 'Legacy' };
+
 
 interface AreaVibeStats {
   dominant: { type: VibeType; percentage: number } | null;
@@ -17,28 +25,15 @@ interface AreaVibeStats {
   total: number;
 }
 
-// Helper function for client-side distance calculation as a fallback
-const haversineDistance = (coords1: { lat: number, lng: number }, coords2: { lat: number, lng: number }): number => {
-    const toRad = (x: number) => (x * Math.PI) / 180;
-    const R = 6371; // Earth radius in km
-
-    const dLat = toRad(coords2.lat - coords1.lat);
-    const dLon = toRad(coords2.lng - coords1.lng);
-    const lat1 = toRad(coords1.lat);
-    const lat2 = toRad(coords2.lat);
-
-    const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    
-    return R * c;
-};
-
+interface SafetyBriefing {
+    summary: string;
+    sources: { uri: string, title: string }[];
+}
 
 const Services: React.FC = () => {
   const [address, setAddress] = useState<string | null>(null);
   const [areaVibeStats, setAreaVibeStats] = useState<AreaVibeStats | null>(null);
+  const [nearbyPlaces, setNearbyPlaces] = useState<string[] | null>(null);
   const [safetyAdvice, setSafetyAdvice] = useState<string | null>(null);
   const [pulseLoading, setPulseLoading] = useState(true);
   const [adviceLoading, setAdviceLoading] = useState(true);
@@ -46,8 +41,17 @@ const Services: React.FC = () => {
   const [toast, setToast] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const auth = useContext(AuthContext);
+
+  // New state for Safety Briefing
+  const [briefingLocation, setBriefingLocation] = useState('');
+  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [briefingResult, setBriefingResult] = useState<SafetyBriefing | null>(null);
+  const [briefingError, setBriefingError] = useState<string | null>(null);
+
+  // New state for Live Assistant
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   
-  // Effect 1: Fetch location, address, and vibe data
+  // Effect 1: Fetch location, address, vibe data, and nearby places
   useEffect(() => {
     const fetchPulseData = async () => {
       setPulseLoading(true);
@@ -56,13 +60,21 @@ const Services: React.FC = () => {
       navigator.geolocation.getCurrentPosition(async (position) => {
         const { latitude, longitude } = position.coords;
 
-        try {
-            const geoResponse = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+        // Fetch address and nearby places concurrently for speed
+        const [geoResponse, places] = await Promise.all([
+            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`),
+            getNearbyPlacesList({ lat: latitude, lng: longitude }, 500)
+        ]);
+
+        if (geoResponse.ok) {
             const geoData = await geoResponse.json();
-            setAddress(geoData.display_name || 'Address not found');
-        } catch (e) {
+            const currentAddress = geoData.display_name || 'Address not found';
+            setAddress(currentAddress);
+            setBriefingLocation(currentAddress);
+        } else {
             setAddress('Could not fetch address');
         }
+        setNearbyPlaces(places);
         
         const { data: rpcVibes, error: rpcError } = await supabase.rpc('get_nearby_vibes', {
             user_lat: latitude,
@@ -98,7 +110,7 @@ const Services: React.FC = () => {
         }
 
         const vibeCounts = nearbyVibes.reduce<Record<string, number>>((acc, vibe) => {
-            if (vibe?.vibe_type && Object.values(VibeType).includes(vibe.vibe_type)) {
+            if (vibe?.vibe_type) {
                 acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
             }
             return acc;
@@ -111,7 +123,17 @@ const Services: React.FC = () => {
         }
 
         const totalValidVibes = Object.values(vibeCounts).reduce((sum, count) => sum + count, 0);
-        const breakdown = Object.fromEntries(Object.values(VibeType).map(type => [type, ((vibeCounts[type] || 0) / totalValidVibes) * 100]));
+        // Fix: Refactor breakdown calculation to avoid TypeScript type errors with .concat and improve readability.
+        const enumBreakdown = Object.fromEntries(
+            Object.values(VibeType).map(type => [type, ((vibeCounts[type] || 0) / totalValidVibes) * 100])
+        );
+        const legacyBreakdown = Object.fromEntries(
+            Object.keys(vibeCounts)
+                .filter(type => !Object.values(VibeType).includes(type as VibeType))
+                .map(type => [type, ((vibeCounts[type] || 0) / totalValidVibes) * 100])
+        );
+        const breakdown = { ...enumBreakdown, ...legacyBreakdown };
+
         const dominantVibeEntry = Object.entries(vibeCounts).sort((a, b) => b[1] - a[1])[0];
         
         setAreaVibeStats({
@@ -129,19 +151,15 @@ const Services: React.FC = () => {
     fetchPulseData();
   }, []);
 
-  // Effect 2: Generate safety advice when vibe stats become available.
+  // Effect 2: Generate safety advice when vibe stats and places become available.
   useEffect(() => {
     const generateAdvice = async () => {
-      if (!areaVibeStats) return;
+      if (!areaVibeStats || nearbyPlaces === null) return;
 
-      if (!areaVibeStats.dominant?.type) {
-        if (areaVibeStats.total === 0) {
+      if (areaVibeStats.total === 0) {
           setSafetyAdvice("No recent vibes reported here. Be the first to share the pulse of this area!");
-        } else {
-           setSafetyAdvice("Could not determine the local vibe from recent reports.");
-        }
-        setAdviceLoading(false);
-        return;
+          setAdviceLoading(false);
+          return;
       }
       
       let apiKey: string | undefined;
@@ -160,11 +178,49 @@ const Services: React.FC = () => {
       setAdviceLoading(true);
       setSafetyAdvice(''); // Clear previous advice before streaming
       try {
-        const { GoogleGenAI } = await import('@google/genai');
         if (!GoogleGenAI) throw new Error("GoogleGenAI class not found in module.");
 
         const ai = new GoogleGenAI({ apiKey });
-        const prompt = `The dominant community-reported vibe in this area is "${areaVibeStats.dominant.type}". Provide a single, concise, and actionable safety tip someone can use right now. Start the tip with a verb (e.g., 'Avoid', 'Stick to', 'Keep'). Maximum 20 words.`;
+
+        const date = new Date();
+        const timeOfDay = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        const dayOfWeek = date.toLocaleString('en-US', { weekday: 'long' });
+
+        let context = `--- CONTEXT DATA ---\n`;
+        context += `- Time: ${timeOfDay} on a ${dayOfWeek}\n`;
+        if (areaVibeStats.total > 0 && areaVibeStats.dominant) {
+            const breakdownText = Object.entries(areaVibeStats.breakdown)
+                .filter(([, percentage]) => (percentage as number) > 0)
+                .map(([type, percentage]) => `${(percentage as number).toFixed(0)}% ${(VIBE_CONFIG[type]?.displayName || type)}`)
+                .join(', ');
+            context += `- Community Vibe Breakdown: ${breakdownText}\n`;
+        } else {
+            context += `- Community Vibe Breakdown: No recent reports in this area.\n`;
+        }
+    
+        if (nearbyPlaces.length > 0) {
+            context += `- Nearby Points of Interest: ${nearbyPlaces.slice(0, 5).join(', ')}\n`; // Limit to 5 for brevity
+        } else {
+            context += `- Nearby Points of Interest: None detected.\n`;
+        }
+        context += `--- END CONTEXT DATA ---\n\n`;
+    
+        const prompt = context + `You are a helpful community safety assistant. Your task is to provide a "Vibe Explanation" based on the new vibe categories:
+- Safe: General feeling of security.
+- Calm: Peaceful and quiet, low activity.
+- Noisy: High level of sound, can be from traffic, construction, or crowds. Neutral to negative.
+- LGBTQIA+ Friendly: A welcoming and inclusive atmosphere for LGBTQIA+ individuals.
+- Suspicious: Something feels off or unsettling, but no immediate danger is perceived.
+- Dangerous: A clear and present sense of threat or hostile activity.
+
+Based on this, do the following:
+1. First, in one friendly sentence, EXPLAIN the likely reason for the current community vibe using the context data provided. Be insightful.
+2. Then, on a new line, provide a single, practical, and actionable safety tip that is relevant to your explanation. Start this tip with a verb.
+
+Example:
+The area feels welcoming and calm, likely due to the nearby park and several cafes creating a relaxed daytime atmosphere.
+
+Take a moment to enjoy a walk, but always be aware of your surroundings.`;
         
         const responseStream = await ai.models.generateContentStream({
           model: 'gemini-2.5-flash',
@@ -178,17 +234,16 @@ const Services: React.FC = () => {
           setSafetyAdvice(currentAdvice => (currentAdvice || '') + chunk.text);
         }
 
-      } catch (err) {
-        console.error("Failed to generate smart advice:", err);
-        setSafetyAdvice("Smart advice could not be generated at this time.");
+      } catch (err: any) {
+        console.error("Failed to generate smart advice:", err.message);
+        setSafetyAdvice("Smart explanation could not be generated at this time.");
       } finally {
         setAdviceLoading(false);
       }
     };
 
     generateAdvice();
-  }, [areaVibeStats]);
-
+  }, [areaVibeStats, nearbyPlaces]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -206,27 +261,59 @@ const Services: React.FC = () => {
       if (error) {
           showToast(`Error: ${error.message}`);
       } else {
-          showToast(`Vibe '${vibeType}' reported successfully!`);
+          showToast(`Vibe '${VIBE_CONFIG[vibeType]?.displayName || vibeType}' reported successfully!`);
       }
       setActionLoading(false);
     }, () => { showToast('Error: Unable to get location.'); setActionLoading(false); });
   };
 
-  const sendSOS = () => {
-    setActionLoading(true);
-     navigator.geolocation.getCurrentPosition(async (position) => {
-      const { error } = await supabase.from('sos').insert({ 
-            user_id: auth?.user?.id, 
-            details: 'SOS Alert Activated', 
-            location: { lat: position.coords.latitude, lng: position.coords.longitude } 
+  const handleGenerateBriefing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!briefingLocation) {
+        setBriefingError("Please enter a location.");
+        return;
+    }
+
+    setBriefingLoading(true);
+    setBriefingResult(null);
+    setBriefingError(null);
+
+    try {
+        let apiKey: string | undefined;
+        try { apiKey = process.env.API_KEY; } catch (e) { /* ignore */ }
+        if (!apiKey) throw new Error("API key not configured.");
+
+        const ai = new GoogleGenAI({ apiKey });
+        const prompt = `Generate a very brief and helpful safety briefing (2-3 sentences max) for a visitor to "${briefingLocation}". Analyze recent events and safety perceptions. Provide a summary in a friendly, easy-to-understand paragraph, and conclude with one practical safety tip.`;
+        
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                tools: [{ googleSearch: {} }],
+            },
         });
-      if(error){
-          showToast(`Error: ${error.message}`);
-      } else {
-          showToast(`SOS sent! Help is on the way.`);
-      }
-      setActionLoading(false);
-    }, () => { showToast('Error: Unable to get location.'); setActionLoading(false); });
+
+        const summary = response.text;
+        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+        const sources = groundingChunks
+            .map((chunk: any) => chunk.web)
+            .filter((web: any) => web?.uri && web?.title)
+            .reduce((acc: any[], current: any) => { // Deduplicate sources by URI
+                if (!acc.find(item => item.uri === current.uri)) {
+                    acc.push(current);
+                }
+                return acc;
+            }, []);
+        
+        setBriefingResult({ summary, sources });
+
+    // Fix: Rewriting the catch/finally block to ensure variables are correctly scoped and to fix potential invisible syntax errors.
+    } catch (error: any) {
+        setBriefingError(error.message || "Failed to generate safety briefing.");
+    } finally {
+        setBriefingLoading(false);
+    }
   };
   
   const SkeletonLoader = () => <div className="h-4 bg-gray-600 rounded w-3/4 animate-pulse"></div>;
@@ -252,18 +339,19 @@ const Services: React.FC = () => {
             </div>
           ) : areaVibeStats && areaVibeStats.total > 0 ? (
             <div>
-              <p className={`text-xl font-bold ${VIBE_CONFIG[areaVibeStats.dominant!.type].textClass}`}>
-                {areaVibeStats.dominant!.percentage.toFixed(0)}% {areaVibeStats.dominant!.type}
+              <p className={`text-xl font-bold ${(VIBE_CONFIG[areaVibeStats.dominant!.type] || DEFAULT_VIBE_CONFIG).textClass}`}>
+                {areaVibeStats.dominant!.percentage.toFixed(0)}% {(VIBE_CONFIG[areaVibeStats.dominant!.type] || DEFAULT_VIBE_CONFIG).displayName}
               </p>
               <div className="flex h-2 rounded-full overflow-hidden bg-gray-700 mt-2">
-                 {Object.entries(areaVibeStats.breakdown).map(([type, percentage]: [string, number]) => (
-                   percentage > 0 && <div
-                    key={type}
-                    className={VIBE_CONFIG[type as VibeType].barClass}
-                    style={{ width: `${percentage}%` }}
-                    title={`${type}: ${percentage.toFixed(1)}%`}
-                  ></div>
-                ))}
+                 {Object.entries(areaVibeStats.breakdown).map(([type, percentage]: [string, number]) => {
+                    const config = VIBE_CONFIG[type] || DEFAULT_VIBE_CONFIG;
+                    return percentage > 0 && <div
+                      key={type}
+                      className={config.barClass}
+                      style={{ width: `${percentage}%` }}
+                      title={`${config.displayName}: ${percentage.toFixed(1)}%`}
+                    ></div>
+                 })}
               </div>
               <p className="text-xs text-gray-500 text-right mt-1">Based on {areaVibeStats.total} report{areaVibeStats.total > 1 ? 's' : ''}</p>
             </div>
@@ -275,49 +363,98 @@ const Services: React.FC = () => {
         <div className="space-y-2 pt-2 border-t border-gray-700/50">
             <div className="flex items-center space-x-2 text-gray-400">
                 <LightBulbIcon className="w-5 h-5 flex-shrink-0"/>
-                <h2 className="text-lg font-semibold text-white">Smart Safety Tip</h2>
+                <h2 className="text-lg font-semibold text-white">Smart Vibe Explanation</h2>
             </div>
             {adviceLoading && !safetyAdvice ? (
               <SkeletonLoader />
             ) : (
-              <p className="text-gray-300 italic min-h-[1.5rem]">
-                "{safetyAdvice}
-                {adviceLoading && <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse" style={{ animationDuration: '1s' }}></span>}"
+              <p className="text-gray-300 italic min-h-[4rem] whitespace-pre-wrap">
+                {safetyAdvice}
+                {adviceLoading && <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse" style={{ animationDuration: '1s' }}></span>}
               </p>
             )}
         </div>
       </div>
+      
+      <div className="bg-brand-secondary p-4 rounded-lg space-y-3">
+        <h2 className="text-lg font-semibold text-white">Proactive Safety Briefing</h2>
+        <form onSubmit={handleGenerateBriefing} className="space-y-3">
+            <div className="relative">
+                <input
+                    type="text"
+                    value={briefingLocation}
+                    onChange={(e) => setBriefingLocation(e.target.value)}
+                    placeholder="Enter an address or neighborhood..."
+                    className="w-full bg-gray-700 text-white border border-gray-600 rounded-md py-2 px-3 pl-10 focus:outline-none focus:ring-2 focus:ring-brand-accent"
+                    aria-label="Location for safety briefing"
+                />
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            </div>
+            <button
+                type="submit"
+                disabled={briefingLoading}
+                className="w-full bg-brand-accent text-white font-bold py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-brand-accent disabled:bg-gray-500"
+            >
+                {briefingLoading ? 'Generating...' : 'Get Briefing'}
+            </button>
+        </form>
+
+        {briefingError && <p className="bg-red-500/20 text-red-400 p-3 rounded-md mt-4 text-sm">{briefingError}</p>}
+
+        {briefingResult && (
+            <div className="mt-4 pt-4 border-t border-gray-700 space-y-3">
+                <h3 className="font-semibold">Briefing for: {briefingLocation}</h3>
+                <p className="text-gray-300 whitespace-pre-wrap">{briefingResult.summary}</p>
+                {briefingResult.sources.length > 0 && (
+                    <div>
+                        <h4 className="text-sm font-semibold text-gray-400">Sources:</h4>
+                        <ul className="list-disc list-inside text-sm space-y-1 mt-1">
+                            {briefingResult.sources.map((source, i) => (
+                                <li key={i}>
+                                    <a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline break-all">
+                                        {source.title}
+                                    </a>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+            </div>
+        )}
+      </div>
+
 
       <div className="bg-brand-secondary p-4 rounded-lg space-y-3">
         <h2 className="text-lg font-semibold text-white">Report a Vibe</h2>
-        <div className="grid grid-cols-2 gap-3">
-            {Object.values(VibeType).map(vibe => (
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            {Object.entries(VIBE_CONFIG).map(([vibe, config]) => (
                 <button
                     key={vibe}
-                    onClick={() => reportVibe(vibe)}
+                    onClick={() => reportVibe(vibe as VibeType)}
                     disabled={actionLoading}
-                    className={`p-3 rounded-md text-center font-semibold transition-transform transform hover:scale-105 ${VIBE_CONFIG[vibe].bgClass} ${VIBE_CONFIG[vibe].textClass} disabled:opacity-50 disabled:cursor-not-allowed`}
+                    className={`p-3 rounded-md text-center font-semibold transition-transform transform hover:scale-105 ${config.bgClass} ${config.textClass} disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
-                    <span className="text-xl mr-2">{VIBE_CONFIG[vibe].emoji}</span>
-                    {vibe.charAt(0).toUpperCase() + vibe.slice(1)}
+                    <span className="text-xl mr-2">{config.emoji}</span>
+                    {config.displayName}
                 </button>
             ))}
         </div>
       </div>
 
       <div className="bg-red-900/50 p-4 rounded-lg border border-red-500/30">
-        <h2 className="text-lg font-semibold text-red-200">Emergency Alert</h2>
-        <p className="text-sm text-red-300 mb-3">Use only in a real emergency. Your location will be shared.</p>
+        <h2 className="text-lg font-semibold text-red-200">Emergency Assistance</h2>
+        <p className="text-sm text-red-300 mb-3">If you are in danger, connect to our live AI assistant for immediate help.</p>
         <button
-            onClick={sendSOS}
+            onClick={() => setIsAssistantOpen(true)}
             disabled={actionLoading}
-            className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-md hover:bg-red-700 transition-colors disabled:bg-red-800 disabled:opacity-70 disabled:cursor-not-allowed relative overflow-hidden"
+            className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-md hover:bg-red-700 transition-colors disabled:bg-red-800 disabled:opacity-70 disabled:cursor-not-allowed relative overflow-hidden flex items-center justify-center space-x-2"
         >
-            <span className="absolute inset-0 bg-white opacity-20 animate-pulse"></span>
-            SEND SOS
+            <MicrophoneIcon className="w-6 h-6" />
+            <span>START LIVE ASSISTANCE</span>
         </button>
       </div>
 
+      <LiveAssistantModal isOpen={isAssistantOpen} onClose={() => setIsAssistantOpen(false)} />
     </div>
   );
 };

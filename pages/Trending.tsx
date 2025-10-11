@@ -1,7 +1,16 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
 import type { Vibe } from '../types';
+import { VibeType } from '../types';
+
+const vibeDisplayNameMapping: Record<string, string> = {
+    [VibeType.Safe]: 'Safe',
+    [VibeType.Calm]: 'Calm',
+    [VibeType.Noisy]: 'Noisy',
+    [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly',
+    [VibeType.Suspicious]: 'Suspicious',
+    [VibeType.Dangerous]: 'Dangerous',
+};
 
 const Trending: React.FC = () => {
   const [vibes, setVibes] = useState<Vibe[]>([]);
@@ -16,7 +25,7 @@ const Trending: React.FC = () => {
       .limit(20);
     
     if (error) {
-      console.error('Error fetching trending vibes', error);
+      console.error('Error fetching trending vibes:', error.message);
     } else {
       setVibes(data as Vibe[]);
     }
@@ -97,7 +106,7 @@ const Trending: React.FC = () => {
             <div className="flex items-center space-x-4">
                 <span className="text-xl font-bold text-gray-500 w-6 text-center">{index + 1}</span>
                 <div>
-                    <p className="font-bold capitalize">{vibe.vibe_type}</p>
+                    <p className="font-bold">{vibeDisplayNameMapping[vibe.vibe_type] || vibe.vibe_type}</p>
                     <p className="text-sm text-gray-400">Reported by {vibe.profiles?.username || 'anonymous'}</p>
                 </div>
             </div>
