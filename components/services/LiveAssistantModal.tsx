@@ -3,7 +3,8 @@ import { GoogleGenAI, LiveServerMessage, Modality, Blob, FunctionDeclaration, Ty
 import { decode, decodeAudioData, encode } from '../../utils/audio';
 import { supabase } from '../../services/supabaseClient';
 import { AuthContext } from '../../contexts/AuthContext';
-import { Vibe, VibeType } from '../../types';
+import { Vibe, VibeType, Location } from '../../types';
+import { haversineDistance } from '../../utils/geolocation';
 
 interface LiveAssistantModalProps {
   isOpen: boolean;
@@ -13,6 +14,14 @@ interface LiveAssistantModalProps {
 interface TranscriptionEntry {
     speaker: 'user' | 'model';
     text: string;
+}
+
+// Helper to convert Supabase GeoJSON point to our LatLng format
+const parseLocation = (loc: any): Location | null => {
+    if (loc && loc.coordinates && loc.coordinates.length === 2) {
+        return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
+    }
+    return null;
 }
 
 const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose }) => {
@@ -126,34 +135,37 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
                 let initialGreeting = 'Hello! I am your live emergency assistant. How can I help you?';
 
                 if (userLocation) {
-                    const { data: nearbyVibes, error: vibesError } = await supabase.rpc('get_nearby_vibes', {
-                        user_lat: userLocation.latitude,
-                        user_lng: userLocation.longitude,
-                        radius_km: 1
-                    });
+                    const { data: allVibes, error: vibesError } = await supabase.from('vibes').select('*');
 
                     if (vibesError) {
                         console.warn("Could not fetch nearby vibes for AI context:", vibesError.message);
-                    } else if (nearbyVibes && nearbyVibes.length > 0) {
-                        const vibeDisplayNameMapping: Record<string, string> = {
-                            [VibeType.Safe]: 'Safe', [VibeType.Calm]: 'Calm', [VibeType.Noisy]: 'Noisy', [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly', [VibeType.Suspicious]: 'Suspicious', [VibeType.Dangerous]: 'Dangerous',
-                        };
-                        
-                        const vibeCounts = (nearbyVibes as Vibe[]).reduce((acc: any, vibe: Vibe) => {
-                            acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
-                            return acc;
-                        }, {});
-                        const totalVibes = nearbyVibes.length;
-                        const dominantVibe = Object.keys(vibeCounts).reduce((a, b) => vibeCounts[a] > vibeCounts[b] ? a : b);
-                        const dominantVibeName = vibeDisplayNameMapping[dominantVibe] || dominantVibe;
+                    } else if (allVibes && allVibes.length > 0) {
+                        const parsedVibes = (allVibes as any[]).map(v => ({...v, location: parseLocation(v.location)}));
+                        const nearbyVibes = parsedVibes.filter(vibe => 
+                            vibe.location && haversineDistance({ lat: userLocation!.latitude, lng: userLocation!.longitude }, vibe.location) <= 1
+                        ) as Vibe[];
 
-                        initialGreeting = `Hello! I am your live emergency assistant. The current vibe in your area is reported as "${dominantVibeName}". How can I help you?`;
-                        
-                        const breakdownText = Object.entries(vibeCounts)
-                            .map(([type, count]) => `${(((count as number) / totalVibes) * 100).toFixed(0)}% ${vibeDisplayNameMapping[type] || type}`)
-                            .join(', ');
+                        if (nearbyVibes.length > 0) {
+                             const vibeDisplayNameMapping: Record<string, string> = {
+                                [VibeType.Safe]: 'Safe', [VibeType.Calm]: 'Calm', [VibeType.Noisy]: 'Noisy', [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly', [VibeType.Suspicious]: 'Suspicious', [VibeType.Dangerous]: 'Dangerous',
+                            };
+                            
+                            const vibeCounts = nearbyVibes.reduce((acc: any, vibe: Vibe) => {
+                                acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
+                                return acc;
+                            }, {});
+                            const totalVibes = nearbyVibes.length;
+                            const dominantVibe = Object.keys(vibeCounts).reduce((a, b) => vibeCounts[a] > vibeCounts[b] ? a : b);
+                            const dominantVibeName = vibeDisplayNameMapping[dominantVibe] || dominantVibe;
 
-                        vibeContext = `The area has ${totalVibes} recent report(s). Breakdown: ${breakdownText}.`;
+                            initialGreeting = `Hello! I am your live emergency assistant. The current vibe in your area is reported as "${dominantVibeName}". How can I help you?`;
+                            
+                            const breakdownText = Object.entries(vibeCounts)
+                                .map(([type, count]) => `${(((count as number) / totalVibes) * 100).toFixed(0)}% ${vibeDisplayNameMapping[type] || type}`)
+                                .join(', ');
+
+                            vibeContext = `The area has ${totalVibes} recent report(s). Breakdown: ${breakdownText}.`;
+                        }
                     }
                 }
                 
@@ -244,10 +256,11 @@ Your primary goal is to assess the user's situation and, if necessary, dispatch 
                                 for (const fc of message.toolCall.functionCalls) {
                                     if (fc.name === 'sendSOSAlert') {
                                         navigator.geolocation.getCurrentPosition(async (position) => {
+                                            const locationPayload = `POINT(${position.coords.longitude} ${position.coords.latitude})`;
                                             const { error } = await supabase.from('sos').insert({
                                                 user_id: auth?.user?.id,
                                                 details: fc.args.details || 'SOS Alert Activated via Live Assistant',
-                                                location: { lat: position.coords.latitude, lng: position.coords.longitude }
+                                                location: locationPayload
                                             });
                                             const result = error ? `Failed: ${error.message}` : "SOS alert sent successfully.";
                                             sessionPromiseRef.current?.then((session) => {

@@ -2,6 +2,7 @@
 import React, { useContext } from 'react';
 import { HashRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, AuthContext } from './contexts/AuthContext';
+import { DataProvider } from './contexts/DataContext';
 import Home from './pages/Home';
 import Services from './pages/Services';
 import Trending from './pages/Trending';
@@ -22,7 +23,9 @@ const ProtectedRoute: React.FC = () => {
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <AppRoutes />
+      <DataProvider>
+        <AppRoutes />
+      </DataProvider>
     </AuthProvider>
   );
 };

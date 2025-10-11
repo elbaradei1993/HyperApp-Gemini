@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { AuthContext } from '../contexts/AuthContext';
-import { VibeType, Vibe } from '../types';
+import { useData } from '../contexts/DataContext';
+import { VibeType, Vibe, Location } from '../types';
 import { LocationMarkerIcon, LightBulbIcon, SearchIcon, MicrophoneIcon } from '../components/ui/Icons';
 import { getNearbyPlacesList } from '../services/osmApiService';
 import { haversineDistance } from '../utils/geolocation';
@@ -32,6 +33,7 @@ interface SafetyBriefing {
 
 const Services: React.FC = () => {
   const [address, setAddress] = useState<string | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
   const [areaVibeStats, setAreaVibeStats] = useState<AreaVibeStats | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<string[] | null>(null);
   const [safetyAdvice, setSafetyAdvice] = useState<string | null>(null);
@@ -41,6 +43,7 @@ const Services: React.FC = () => {
   const [toast, setToast] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const auth = useContext(AuthContext);
+  const { vibes, loading: dataLoading, error: dataError } = useData();
 
   // New state for Safety Briefing
   const [briefingLocation, setBriefingLocation] = useState('');
@@ -51,95 +54,80 @@ const Services: React.FC = () => {
   // New state for Live Assistant
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   
-  // Effect 1: Fetch location, address, vibe data, and nearby places
+  // Effect 1: Get user's current location and fetch address/places
   useEffect(() => {
-    const fetchPulseData = async () => {
-      setPulseLoading(true);
-      setError(null);
-      
-      navigator.geolocation.getCurrentPosition(async (position) => {
-        const { latitude, longitude } = position.coords;
+    setPulseLoading(true);
+    setError(null);
+    
+    navigator.geolocation.getCurrentPosition(async (position) => {
+      const { latitude, longitude } = position.coords;
+      const location = { lat: latitude, lng: longitude };
+      setCurrentLocation(location);
 
-        // Fetch address and nearby places concurrently for speed
-        const [geoResponse, places] = await Promise.all([
-            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`),
-            getNearbyPlacesList({ lat: latitude, lng: longitude }, 500)
-        ]);
+      const [geoResponse, places] = await Promise.all([
+          fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`),
+          getNearbyPlacesList(location, 500)
+      ]);
 
-        if (geoResponse.ok) {
-            const geoData = await geoResponse.json();
-            const currentAddress = geoData.display_name || 'Address not found';
-            setAddress(currentAddress);
-            setBriefingLocation(currentAddress);
-        } else {
-            setAddress('Could not fetch address');
-        }
-        setNearbyPlaces(places);
-        
-        const { data: rpcVibes, error: rpcError } = await supabase.rpc('get_nearby_vibes', {
-            user_lat: latitude,
-            user_lng: longitude,
-            radius_km: 1
-        });
-        
-        let nearbyVibes: Vibe[] | null = null;
-
-        if (rpcError) {
-            console.warn(`RPC call failed, falling back to client-side. Error: ${rpcError.message}`);
-            const { data: allVibes, error: selectError } = await supabase.from('vibes').select('*');
-
-            if (selectError) {
-                setError('Could not fetch area vibes. Please check your network connection and RLS policies.');
-                setPulseLoading(false);
-                return;
-            }
-
-            if (allVibes) {
-                nearbyVibes = (allVibes as Vibe[]).filter(vibe => 
-                    vibe.location && haversineDistance({ lat: latitude, lng: longitude }, vibe.location) <= 1
-                );
-            }
-        } else {
-            nearbyVibes = rpcVibes as Vibe[];
-        }
-        
-        const validVibeTypes = new Set(Object.values(VibeType));
-        const validNearbyVibes = (nearbyVibes || []).filter(v => v.vibe_type && validVibeTypes.has(v.vibe_type as VibeType));
-
-        if (validNearbyVibes.length === 0) {
-            setAreaVibeStats({ dominant: null, breakdown: {}, total: 0 });
-            setPulseLoading(false);
-            return;
-        }
-
-        const vibeCounts = validNearbyVibes.reduce<Record<string, number>>((acc, vibe) => {
-            acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
-            return acc;
-        }, {});
-        
-        const totalValidVibes = validNearbyVibes.length;
-        const breakdown = Object.fromEntries(
-            Object.entries(vibeCounts).map(([type, count]) => [type, (count / totalValidVibes) * 100])
-        );
-
-        const dominantVibeEntry = Object.entries(vibeCounts).sort((a, b) => b[1] - a[1])[0];
-        
-        setAreaVibeStats({
-            dominant: { type: dominantVibeEntry[0] as VibeType, percentage: (dominantVibeEntry[1] / totalValidVibes) * 100 },
-            breakdown,
-            total: totalValidVibes
-        });
-        setPulseLoading(false);
-
-      }, (geoError) => {
-        setError("Could not get your location. Please enable location services.");
-        setPulseLoading(false);
-      });
-    };
-    fetchPulseData();
+      if (geoResponse.ok) {
+          const geoData = await geoResponse.json();
+          const currentAddress = geoData.display_name || 'Address not found';
+          setAddress(currentAddress);
+          setBriefingLocation(currentAddress);
+      } else {
+          setAddress('Could not fetch address');
+      }
+      setNearbyPlaces(places);
+    }, (geoError) => {
+      setError("Could not get your location. Please enable location services.");
+      setPulseLoading(false);
+    });
   }, []);
 
-  // Effect 2: Generate safety advice when vibe stats and places become available.
+  // Effect 2: Calculate vibe stats whenever global vibe data or location changes
+  useEffect(() => {
+    if (dataLoading || !currentLocation) return;
+    if (dataError) {
+        setError(dataError);
+        setPulseLoading(false);
+        return;
+    }
+    
+    const nearbyVibes = vibes.filter(vibe => 
+        vibe.location && haversineDistance(currentLocation, vibe.location) <= 1
+    );
+    
+    if (nearbyVibes.length === 0) {
+        setAreaVibeStats({ dominant: null, breakdown: {}, total: 0 });
+        setPulseLoading(false);
+        return;
+    }
+
+    // FIX: Cast the initial value of reduce to Record<string, number> to ensure correct type inference for `acc` and `vibeCounts`.
+    // This resolves downstream errors in arithmetic operations.
+    const vibeCounts = nearbyVibes.reduce((acc, vibe) => {
+        acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
+        return acc;
+    }, {} as Record<string, number>);
+    
+    const totalVibes = nearbyVibes.length;
+    const breakdown = Object.fromEntries(
+        Object.entries(vibeCounts).map(([type, count]) => [type, (count / totalVibes) * 100])
+    );
+
+    const dominantVibeEntry = Object.entries(vibeCounts).sort((a, b) => b[1] - a[1])[0];
+    
+    setAreaVibeStats({
+        dominant: { type: dominantVibeEntry[0] as VibeType, percentage: (dominantVibeEntry[1] / totalVibes) * 100 },
+        breakdown,
+        total: totalVibes
+    });
+    setPulseLoading(false);
+
+  }, [vibes, currentLocation, dataLoading, dataError]);
+
+
+  // Effect 3: Generate safety advice when vibe stats and places become available.
   useEffect(() => {
     const generateAdvice = async () => {
       if (!areaVibeStats || nearbyPlaces === null) return;
@@ -166,8 +154,6 @@ const Services: React.FC = () => {
       setAdviceLoading(true);
       setSafetyAdvice(''); // Clear previous advice before streaming
       try {
-        if (!GoogleGenAI) throw new Error("GoogleGenAI class not found in module.");
-
         const ai = new GoogleGenAI({ apiKey });
 
         const date = new Date();
@@ -241,10 +227,12 @@ Take a moment to enjoy a walk, but always be aware of your surroundings.`;
   const reportVibe = (vibeType: VibeType) => {
     setActionLoading(true);
     navigator.geolocation.getCurrentPosition(async (position) => {
+      // PostGIS requires POINT(lng lat) format
+      const locationPayload = `POINT(${position.coords.longitude} ${position.coords.latitude})`;
       const { error } = await supabase.from('vibes').insert({ 
             user_id: auth?.user?.id, 
             vibe_type: vibeType, 
-            location: { lat: position.coords.latitude, lng: position.coords.longitude } 
+            location: locationPayload
         });
       if (error) {
           showToast(`Error: ${error.message}`);
@@ -314,7 +302,7 @@ Take a moment to enjoy a walk, but always be aware of your surroundings.`;
       <div className="bg-brand-secondary p-4 rounded-lg space-y-4">
         <div className="flex items-center space-x-2 text-gray-400">
             <LocationMarkerIcon className="w-5 h-5 flex-shrink-0" />
-            <span className="text-sm">{pulseLoading ? <SkeletonLoader /> : address}</span>
+            <span className="text-sm">{pulseLoading && !address ? <SkeletonLoader /> : address}</span>
         </div>
         
         <div className="space-y-2">

@@ -1,14 +1,12 @@
-import React, { Suspense, lazy } from 'react';
+import React from 'react';
 
-// Lazy load the map component to improve initial page load time
-const MapWrapper = lazy(() => import('../components/map/MapWrapper'));
+// Eagerly load the map component to ensure it renders reliably.
+import MapWrapper from '../components/map/MapWrapper';
 
 const Home: React.FC = () => {
   return (
-    <div className="absolute inset-0">
-      <Suspense fallback={<div className="flex items-center justify-center h-full w-full bg-brand-secondary text-gray-400">Loading Map...</div>}>
-        <MapWrapper />
-      </Suspense>
+    <div className="h-full w-full">
+      <MapWrapper />
     </div>
   );
 };

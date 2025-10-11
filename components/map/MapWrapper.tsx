@@ -1,17 +1,20 @@
-
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../services/supabaseClient';
-import type { Vibe, SOS, Event } from '../../types';
+import { AuthContext } from '../../contexts/AuthContext';
+import { useData } from '../../contexts/DataContext';
+import type { SafeZone, Location } from '../../types';
 import { VibeType } from '../../types';
 import { FireIcon } from '../ui/Icons';
 import AreaSummaryModal from './AreaSummaryModal';
 import { haversineDistance } from '../../utils/geolocation';
 
+// This tells TypeScript that the Leaflet library (L) is available globally
+// because it's loaded via a <script> tag in index.html.
 declare const L: any;
 
 // --- Leaflet Icon Setup ---
+// Fixes an issue with the default icon paths in some module bundlers.
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -19,51 +22,38 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-const validVibeTypes = new Set(Object.values(VibeType));
+// Helper to convert Supabase GeoJSON point to our LatLng format
+// Supabase returns: { type: 'Point', coordinates: [lng, lat] }
+const parseLocation = (loc: any): Location | null => {
+    if (loc && loc.coordinates && loc.coordinates.length === 2) {
+        return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
+    }
+    return null;
+}
+
+// --- Icon Creation Functions ---
+const VIBE_CONFIG: Record<string, { color: string; displayName: string }> = {
+    [VibeType.Safe]: { color: 'green', displayName: 'Safe' },
+    [VibeType.Calm]: { color: 'blue', displayName: 'Calm' },
+    [VibeType.Noisy]: { color: 'yellow', displayName: 'Noisy' },
+    [VibeType.LGBTQIAFriendly]: { color: 'violet', displayName: 'LGBTQIA+ Friendly' },
+    [VibeType.Suspicious]: { color: 'orange', displayName: 'Suspicious' },
+    [VibeType.Dangerous]: { color: 'red', displayName: 'Dangerous' },
+};
 
 const getVibeIcon = (vibeType: VibeType) => {
-  const color = {
-    [VibeType.Safe]: 'green',
-    [VibeType.Calm]: 'blue',
-    [VibeType.Noisy]: 'yellow',
-    [VibeType.LGBTQIAFriendly]: 'violet',
-    [VibeType.Suspicious]: 'orange',
-    [VibeType.Dangerous]: 'red',
-  }[vibeType as VibeType];
-
+  const color = VIBE_CONFIG[vibeType]?.color || 'grey';
   return new L.Icon({
     iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
     iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
   });
 };
-
-const vibeDisplayNameMapping: Record<string, string> = {
-    [VibeType.Safe]: 'Safe',
-    [VibeType.Calm]: 'Calm',
-    [VibeType.Noisy]: 'Noisy',
-    [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly',
-    [VibeType.Suspicious]: 'Suspicious',
-    [VibeType.Dangerous]: 'Dangerous',
-};
-
-const sosIcon = new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-});
-
-const eventIcon = new L.Icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-});
+const sosIcon = getVibeIcon(VibeType.Dangerous); // Reuse dangerous icon for visual consistency
+const eventIcon = getVibeIcon(VibeType.Calm); // Reuse calm icon
 
 interface SummaryModalState {
-    isOpen: boolean;
-    isLoading: boolean;
-    summary: string | null;
-    error: string | null;
+    isOpen: boolean; isLoading: boolean; summary: string | null; error: string | null;
 }
 
 const MapWrapper: React.FC = () => {
@@ -71,308 +61,204 @@ const MapWrapper: React.FC = () => {
   const mapRef = useRef<any>(null);
   const heatLayerRef = useRef<any>(null);
   const markerClusterGroupRef = useRef<any>(null);
-  const markersRef = useRef<Record<string, any>>({});
-  const subscriptionRef = useRef<any>(null);
+  const safeZoneLayersRef = useRef<Record<number, any>>({});
 
+  const auth = useContext(AuthContext);
+  const { vibes, sos, events, loading: dataLoading, error: dataError } = useData();
+  
   const location = useLocation();
   const navigate = useNavigate();
   const isSettingZone = location.state?.settingZone === true;
 
-  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
-  const [showHeatmap, setShowHeatmap] = useState(true);
-  const [summaryModalState, setSummaryModalState] = useState<SummaryModalState>({
-    isOpen: false,
-    isLoading: false,
-    summary: null,
-    error: null,
-  });
-
+  const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [summaryModalState, setSummaryModalState] = useState<SummaryModalState>({ isOpen: false, isLoading: false, summary: null, error: null });
+  
+  // --- Map Initialization Effect ---
+  // This effect runs only ONCE to create the map instance.
   useEffect(() => {
-    navigator.geolocation.getCurrentPosition(
-      (position) => setUserLocation([position.coords.latitude, position.coords.longitude]),
-      () => setUserLocation([51.505, -0.09])
-    );
-  }, []);
-
-  const addOrUpdateMarker = (item: Vibe | SOS | Event, type: 'vibe' | 'sos' | 'event') => {
-    if (!item.location || !markerClusterGroupRef.current) return;
-    const markerId = `${type}-${item.id}`;
-    const existingMarker = markersRef.current[markerId];
-    let icon, basePopupContent;
-
-    if (type === 'vibe') {
-        const vibe = item as Vibe;
-        icon = getVibeIcon(vibe.vibe_type);
-        const displayName = vibeDisplayNameMapping[vibe.vibe_type];
-        basePopupContent = `<strong>Vibe:</strong> ${displayName}<br><strong>By:</strong> ${vibe.profiles?.username || 'anonymous'}`;
-    } else if (type === 'sos') {
-        const sos = item as SOS;
-        if (sos.resolved) { removeMarker(markerId); return; }
-        icon = sosIcon;
-        basePopupContent = `<strong>SOS:</strong> ${sos.details}<br><strong>By:</strong> ${sos.profiles?.username || 'anonymous'}`;
-    } else {
-        const event = item as Event;
-        icon = eventIcon;
-        basePopupContent = `<strong>Event:</strong> ${event.title}<br><strong>By:</strong> ${event.profiles?.username || 'anonymous'}`;
-    }
-    
-    const popupContent = `<div class="space-y-2 max-w-xs"><div>${basePopupContent}</div></div>`;
-
-    if (existingMarker) {
-        existingMarker.setLatLng([item.location.lat, item.location.lng]);
-        existingMarker.setIcon(icon);
-        existingMarker.bindPopup(popupContent);
-    } else {
-        const newMarker = L.marker([item.location.lat, item.location.lng], { icon }).bindPopup(popupContent);
-        markersRef.current[markerId] = newMarker;
-        markerClusterGroupRef.current.addLayer(newMarker);
-    }
-  };
-
-  const removeMarker = (markerId: string) => {
-    if (!markerClusterGroupRef.current) return;
-    const marker = markersRef.current[markerId];
-    if (marker) {
-      markerClusterGroupRef.current.removeLayer(marker);
-      delete markersRef.current[markerId];
-    }
-  };
-
-  // Main effect for map initialization and data handling to fix race conditions
-  useEffect(() => {
-    if (mapContainerRef.current && !mapRef.current && userLocation) {
-      const map = L.map(mapContainerRef.current, { contextmenu: true }).setView(userLocation, 13);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    if (mapContainerRef.current && !mapRef.current) {
+      const map = L.map(mapContainerRef.current, {
+          center: [40.7128, -74.0060], // Default to NYC
+          zoom: 13,
+      });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
       }).addTo(map);
       
       mapRef.current = map;
       markerClusterGroupRef.current = L.markerClusterGroup();
-      map.addLayer(markerClusterGroupRef.current);
       
-      // --- DATA FETCHING & SUBSCRIPTIONS ---
-      // Now that the map is guaranteed to exist, we can fetch data and subscribe.
-      const fetchInitialData = async () => {
-        const vibesPromise = supabase.from('vibes').select('*, profiles(username)');
-        const sosPromise = supabase.from('sos').select('*, profiles(username)');
-        const eventsPromise = supabase.from('events').select('*, profiles(username)');
+      map.locate({ setView: true, maxZoom: 16 });
 
-        // FIX: The variable `eventsResponse` was used in `Promise.all` before it was declared. It should be `eventsPromise`.
-        const [vibesResponse, sosResponse, eventsResponse] = await Promise.all([vibesPromise, sosPromise, eventsPromise]);
-
-        if (vibesResponse.error) console.error("Error fetching initial vibes:", vibesResponse.error.message);
-        if (sosResponse.error) console.error("Error fetching initial SOS alerts:", sosResponse.error.message);
-        if (eventsResponse.error) console.error("Error fetching initial events:", eventsResponse.error.message);
-        
-        const vibesData = (vibesResponse.data || []).filter(v => v.vibe_type && validVibeTypes.has(v.vibe_type as VibeType));
-        const sosData = sosResponse.data || [];
-        const eventsData = eventsResponse.data || [];
-
-        vibesData.forEach(v => addOrUpdateMarker(v as Vibe, 'vibe'));
-        sosData.forEach(s => addOrUpdateMarker(s as SOS, 'sos'));
-        eventsData.forEach(e => addOrUpdateMarker(e as Event, 'event'));
-        
-        setInitialDataLoaded(true);
-      };
-
-      const handleRecordChange = (payload: any) => {
-          const table = payload.table;
-          const record = payload.new as Vibe | SOS | Event;
-          const oldRecord = payload.old as any;
-          let type: 'vibe' | 'sos' | 'event' | null = null;
-
-          if (table === 'vibes') type = 'vibe';
-          else if (table === 'sos') type = 'sos';
-          else if (table === 'events') type = 'event';
-          if (!type) return;
-
-          // If a vibe is invalid, ensure it gets removed or is not added.
-          if (type === 'vibe' && !validVibeTypes.has((record as Vibe).vibe_type)) {
-              removeMarker(`${type}-${record.id}`);
-              return;
-          }
-
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-              addOrUpdateMarker(record, type);
-          } else if (payload.eventType === 'DELETE') {
-              removeMarker(`${type}-${oldRecord.id}`);
-          }
-      };
-      
-      fetchInitialData();
-
-      if (!subscriptionRef.current) {
-        subscriptionRef.current = supabase.channel('public-data-changes')
-          .on('postgres_changes', { event: '*', schema: 'public' }, handleRecordChange)
-          .subscribe();
-      }
+      setTimeout(() => {
+        map.invalidateSize();
+      }, 0);
     }
+  }, []);
+
+  // --- Safe Zone Fetching Effect (User-specific data) ---
+  useEffect(() => {
+    if (!auth?.user) return;
+    const fetchSafeZones = async () => {
+        const { data, error } = await supabase.from('safe_zones').select('*').eq('user_id', auth.user!.id);
+        if (error) {
+            console.error("Error fetching user's safe zones:", error);
+        } else {
+            const parsedZones = (data || []).map(z => ({ ...z, location: parseLocation(z.location) })).filter(z => z.location) as SafeZone[];
+            setSafeZones(parsedZones);
+        }
+    };
+    fetchSafeZones();
+
+    // Also subscribe to changes for this user's safe zones
+    const subscription = supabase.channel(`safe-zones-user-${auth.user.id}`)
+      .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'safe_zones', filter: `user_id=eq.${auth.user.id}` },
+          () => fetchSafeZones()
+      ).subscribe();
     
     return () => {
-      if (subscriptionRef.current) {
-        supabase.removeChannel(subscriptionRef.current);
-        subscriptionRef.current = null;
-      }
-    };
-  }, [userLocation]);
+        supabase.removeChannel(subscription);
+    }
 
-  // Effect for map interaction handlers
+  }, [auth?.user]);
+
+
+  // --- Data Rendering Effect (Refactored for Robustness) ---
+  // Re-renders all layers whenever data from context or heatmap visibility changes.
   useEffect(() => {
-    const handleMapClickForZone = (e: any) => {
-        navigate('/profile', { state: { newZoneLocation: e.latlng } });
-    };
-    const handleGenerateSummary = async (latlng: { lat: number, lng: number }) => {
+    const map = mapRef.current;
+    if (!map || dataLoading) return;
+
+    // --- 1. CLEAN SLATE: Remove all previous data layers ---
+    if (heatLayerRef.current) {
+        map.removeLayer(heatLayerRef.current);
+        heatLayerRef.current = null;
+    }
+    if (map.hasLayer(markerClusterGroupRef.current)) {
+        map.removeLayer(markerClusterGroupRef.current);
+    }
+    markerClusterGroupRef.current.clearLayers();
+    Object.values(safeZoneLayersRef.current).forEach(layer => map.removeLayer(layer));
+    safeZoneLayersRef.current = {};
+
+    // --- 2. RE-RENDER: Add back the necessary layers ---
+
+    // Always render Safe Zones
+    safeZones.forEach(zone => {
+      const circle = L.circle([zone.location.lat, zone.location.lng], {
+        radius: zone.radius_km * 1000,
+        color: 'cyan', fillColor: 'cyan', fillOpacity: 0.1, weight: 1,
+      }).bindPopup(`<strong>Safe Zone:</strong> ${zone.name}`);
+      map.addLayer(circle);
+      safeZoneLayersRef.current[zone.id] = circle;
+    });
+
+    if (showHeatmap) {
+      const vibeIntensityMap: Record<string, number> = {
+          [VibeType.Safe]: 0.2, [VibeType.Calm]: 0.3, [VibeType.Noisy]: 0.5,
+          [VibeType.LGBTQIAFriendly]: 0.2, [VibeType.Suspicious]: 0.7, [VibeType.Dangerous]: 1.0,
+      };
+      const heatmapData = vibes
+          .map(v => [v.location.lat, v.location.lng, vibeIntensityMap[v.vibe_type]])
+          .filter(v => v[2] > 0);
+          
+      if (heatmapData.length > 0) {
+          heatLayerRef.current = L.heatLayer(heatmapData, {
+              radius: 30, blur: 25, maxZoom: 17,
+              gradient: { 0.2: '#34d399', 0.4: '#3b82f6', 0.6: '#f59e0b', 0.8: '#ef4444', 1.0: '#b91c1c' }
+          }).addTo(map);
+      }
+    } else {
+        const allMarkers = [];
+        vibes.forEach(v => {
+            const marker = L.marker([v.location.lat, v.location.lng], { icon: getVibeIcon(v.vibe_type) })
+                .bindPopup(`<strong>Vibe:</strong> ${VIBE_CONFIG[v.vibe_type]?.displayName}<br><strong>By:</strong> ${v.profiles?.username || 'anonymous'}`);
+            allMarkers.push(marker);
+        });
+        sos.forEach(s => {
+            const marker = L.marker([s.location.lat, s.location.lng], { icon: sosIcon })
+                .bindPopup(`<strong class="text-red-500">SOS ALERT!</strong><br><strong>By:</strong> ${s.profiles?.username || 'anonymous'}<br><strong>Details:</strong> ${s.details}`);
+            allMarkers.push(marker);
+        });
+        events.forEach(e => {
+            const marker = L.marker([e.location.lat, e.location.lng], { icon: eventIcon })
+                .bindPopup(`<strong>Event:</strong> ${e.title}<br><strong>When:</strong> ${new Date(e.event_time).toLocaleString()}`);
+            allMarkers.push(marker);
+        });
+        
+        if (allMarkers.length > 0) {
+            markerClusterGroupRef.current.addLayers(allMarkers);
+            map.addLayer(markerClusterGroupRef.current);
+        }
+    }
+  }, [vibes, sos, events, safeZones, showHeatmap, dataLoading]);
+  
+  // --- Map Interaction Effect ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    
+    map.off('contextmenu').off('click'); // Clear old listeners
+
+    if (isSettingZone) {
+      map.on('click', (e: any) => navigate('/profile', { state: { newZoneLocation: e.latlng } }));
+    } else {
+      map.on('contextmenu', async (e: any) => {
         setSummaryModalState({ isOpen: true, isLoading: true, summary: null, error: null });
         try {
-            // OPTIMIZED: Use RPC to get nearby data efficiently
-            const { data: nearbyVibes, error: vibesError } = await supabase.rpc('get_nearby_vibes', {
-                user_lat: latlng.lat,
-                user_lng: latlng.lng,
-                radius_km: 1
-            });
-            if (vibesError) throw new Error(`Could not fetch vibes: ${vibesError.message}`);
-
-            // For SOS and Events, client-side filtering is acceptable for now as they are less frequent.
-            const sosResponse = await supabase.from('sos').select('*').eq('resolved', false);
-            if (sosResponse.error) console.error("Error fetching SOS data:", sosResponse.error);
-            const allSos = sosResponse.data || [];
-            const nearbySos = allSos.filter(s => s.location && haversineDistance(latlng, s.location) <= 1);
+            const clickedPoint = { lat: e.latlng.lat, lng: e.latlng.lng };
+            const nearbyVibes = vibes.filter(vibe => 
+                haversineDistance(clickedPoint, vibe.location) <= 1
+            );
             
-            const eventsResponse = await supabase.from('events').select('*');
-            if (eventsResponse.error) console.error("Error fetching events data:", eventsResponse.error);
-            const allEvents = eventsResponse.data || [];
-            const nearbyEvents = allEvents.filter(e => e.location && haversineDistance(latlng, e.location) <= 1);
-    
-            let prompt = "You are a local community safety assistant. Based on the following real-time data for a 1km radius, provide a concise and helpful summary for a user. Summarize the current situation in a friendly, easy-to-understand paragraph. Mention the dominant vibe and any important events or alerts. Conclude with a practical tip. If all data fields are empty or contain 'None', state that there are no recent community reports for this area and provide a general, universally applicable safety tip.\n\n--- DATA ---\n";
-    
+            let prompt = `You are a local community safety assistant. Based on the following real-time vibe reports for a 1km radius, provide a concise summary and a practical safety tip. If there are no reports, say so and give a general safety tip.\n\n--- DATA ---\n`;
             if (nearbyVibes && nearbyVibes.length > 0) {
-                const vibeCounts = nearbyVibes.reduce((acc: any, vibe: Vibe) => {
-                    if (validVibeTypes.has(vibe.vibe_type as VibeType)) {
-                        acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
-                    }
-                    return acc;
+                const vibeCounts = nearbyVibes.reduce((acc: any, vibe) => {
+                    acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1; return acc;
                 }, {});
-                if (Object.keys(vibeCounts).length > 0) {
-                    const dominantVibe = Object.keys(vibeCounts).reduce((a, b) => vibeCounts[a] > vibeCounts[b] ? a : b);
-                    prompt += `- Vibe Reports: ${nearbyVibes.length} total. The dominant vibe is "${vibeDisplayNameMapping[dominantVibe] || dominantVibe}".\n`;
-                } else {
-                     prompt += "- Vibe Reports: None in this area.\n";
-                }
+                prompt += `- Vibe Reports: ${Object.entries(vibeCounts).map(([type, count]) => `${count} ${VIBE_CONFIG[type]?.displayName || type}`).join(', ')}\n`;
             } else {
-                prompt += "- Vibe Reports: None in this area.\n";
+                prompt += "- Vibe Reports: None.\n";
             }
-    
-            if (nearbySos.length > 0) { prompt += `- Active SOS Alerts: ${nearbySos.length} active alert(s).\n`; }
-            if (nearbyEvents.length > 0) { prompt += `- Upcoming Events: ${nearbyEvents.map(e => `"${e.title}"`).join(', ')}\n`; }
             prompt += "--- END DATA ---";
-    
+
             const { GoogleGenAI } = await import('@google/genai');
+            const apiKey = process.env.API_KEY;
+            if (!apiKey) throw new Error("API key is not configured.");
             
-            let apiKey: string | undefined;
-            try {
-                apiKey = process.env.API_KEY;
-            } catch(e) { /* ignore */ }
-    
-            if (!apiKey) throw new Error("API key is not configured. Cannot generate summary.");
             const ai = new GoogleGenAI({ apiKey });
-            
-            const responseStream = await ai.models.generateContentStream({
-                model: 'gemini-2.5-flash', contents: prompt, config: { thinkingConfig: { thinkingBudget: 0 } },
-            });
-    
-            for await (const chunk of responseStream) {
-                setSummaryModalState(prev => ({ ...prev, summary: (prev.summary || '') + chunk.text }));
-            }
-    
+            const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+            setSummaryModalState(prev => ({ ...prev, summary: response.text }));
         } catch (err: any) {
             setSummaryModalState(prev => ({ ...prev, error: err.message || "Failed to generate summary." }));
         } finally {
             setSummaryModalState(prev => ({ ...prev, isLoading: false }));
         }
-    };
-    if (mapRef.current) {
-        mapRef.current.off('contextmenu').off('click');
-        if (isSettingZone) {
-            mapRef.current.on('click', handleMapClickForZone);
-        } else {
-            mapRef.current.on('contextmenu', (e: any) => handleGenerateSummary(e.latlng));
-        }
+      });
     }
-  }, [isSettingZone, navigate]);
-  
-    // Effect for handling heatmap toggle
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !initialDataLoaded) return;
-        supabase.from('vibes').select('location, vibe_type').then(({ data }) => {
-            const vibesData = (data || []).filter(v => v.vibe_type && validVibeTypes.has(v.vibe_type as VibeType));
-            if (heatLayerRef.current) { map.removeLayer(heatLayerRef.current); heatLayerRef.current = null; }
-            if (showHeatmap) {
-                if (markerClusterGroupRef.current) map.removeLayer(markerClusterGroupRef.current);
-                const vibeIntensityMap: Record<string, number> = {
-                    [VibeType.Safe]: 0.2,
-                    [VibeType.Calm]: 0.3,
-                    [VibeType.Noisy]: 0.5,
-                    [VibeType.LGBTQIAFriendly]: 0.2,
-                    [VibeType.Suspicious]: 0.7,
-                    [VibeType.Dangerous]: 1.0,
-                };
-                const heatmapData = vibesData.filter(v => v.location).map(v => 
-                    [v.location.lat, v.location.lng, vibeIntensityMap[v.vibe_type]]
-                ).filter(v => v[2] > 0);
-                if (heatmapData.length > 0) {
-                    heatLayerRef.current = L.heatLayer(heatmapData, {
-                        radius: 30, blur: 25, maxZoom: 17,
-                        gradient: { 0.2: 'green', 0.3: 'blue', 0.5: 'yellow', 0.7: 'orange', 1.0: 'red' }
-                    }).addTo(map);
-                }
-            } else {
-                if (markerClusterGroupRef.current) map.addLayer(markerClusterGroupRef.current);
-            }
-        });
-    }, [showHeatmap, initialDataLoaded]);
-
-  const recenterMap = () => {
-    navigator.geolocation.getCurrentPosition(p => {
-      const newLoc: [number, number] = [p.coords.latitude, p.coords.longitude];
-      if (mapRef.current) mapRef.current.flyTo(newLoc, 15);
-    });
-  };
-  
-  if (!userLocation) {
-    return (
-      <div className="flex items-center justify-center h-full w-full bg-brand-secondary text-gray-400">
-        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-        <span>Locating...</span>
-      </div>
-    );
-  }
+  }, [isSettingZone, navigate, vibes]);
 
   return (
     <div className="h-full w-full relative">
-      {isSettingZone && (
-        <div className="absolute top-0 left-0 right-0 p-3 bg-brand-accent text-center z-[1001] animate-pulse">
-          Click on the map to set the center of your new safe zone.
+      <div ref={mapContainerRef} className={`absolute inset-0 z-0 ${isSettingZone ? 'cursor-crosshair' : ''}`} />
+      {dataError && (
+        <div className="absolute top-0 left-0 right-0 z-[1000] p-4 bg-red-900/80 text-red-200 text-center text-sm backdrop-blur-sm">
+          <p className="font-bold">Map Data Error</p>
+          <p>{dataError}</p>
         </div>
       )}
-      <div ref={mapContainerRef} className={`h-full w-full z-0 ${isSettingZone ? 'cursor-crosshair' : ''}`} />
-      <button onClick={recenterMap} className="absolute top-4 right-4 z-[1000] bg-white p-2 rounded-full shadow-lg">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="black" className="w-6 h-6"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path fillRule="evenodd" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-2.25a6.75 6.75 0 1 1 0-13.5 6.75 6.75 0 0 1 0 13.5Z" clipRule="evenodd" /></svg>
-      </button>
-      <button onClick={() => setShowHeatmap(!showHeatmap)} className={`absolute top-20 right-4 z-[1000] p-2 rounded-full shadow-lg transition-colors ${showHeatmap ? 'bg-brand-accent text-white' : 'bg-white text-black'}`}>
-        <FireIcon className="w-6 h-6" />
-      </button>
-      <AreaSummaryModal 
-        isOpen={summaryModalState.isOpen}
-        isLoading={summaryModalState.isLoading}
-        summary={summaryModalState.summary}
-        error={summaryModalState.error}
-        onClose={() => setSummaryModalState({ isOpen: false, isLoading: false, summary: null, error: null })}
-      />
+      <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-3">
+        <button onClick={() => mapRef.current?.locate({ setView: true, maxZoom: 16 })} className="bg-white p-2 rounded-full shadow-lg">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24" fill="black" className="w-6 h-6"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path fillRule="evenodd" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-2.25a6.75 6.75 0 1 1 0-13.5 6.75 6.75 0 0 1 0 13.5Z" clipRule="evenodd" /></svg>
+        </button>
+        <button onClick={() => setShowHeatmap(!showHeatmap)} className={`p-2 rounded-full shadow-lg transition-colors ${showHeatmap ? 'bg-brand-accent text-white' : 'bg-white text-black'}`}>
+          <FireIcon className="w-6 h-6" />
+        </button>
+      </div>
+      <AreaSummaryModal {...summaryModalState} onClose={() => setSummaryModalState({ isOpen: false, isLoading: false, summary: null, error: null })} />
     </div>
   );
 };

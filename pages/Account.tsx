@@ -1,11 +1,21 @@
 
+
 import React, { useState, useEffect, useContext } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation as useReactRouterLocation } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { AuthContext } from '../contexts/AuthContext';
-import type { Profile as ProfileType, Vibe, SOS, SafeZone } from '../types';
+import type { Profile as ProfileType, Vibe, SOS, SafeZone, Location } from '../types';
 import { VibeType } from '../types';
 import { TrashIcon, LocationMarkerIcon } from '../components/ui/Icons';
+
+// Helper to convert Supabase GeoJSON point to our LatLng format
+// Supabase returns: { type: 'Point', coordinates: [lng, lat] }
+const parseLocation = (loc: any): Location | null => {
+    if (loc && loc.coordinates && loc.coordinates.length === 2) {
+        return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
+    }
+    return null;
+}
 
 const Profile: React.FC = () => {
   const [profile, setProfile] = useState<ProfileType | null>(null);
@@ -28,7 +38,7 @@ const Profile: React.FC = () => {
   const [isFetchingAddress, setIsFetchingAddress] = useState(false);
 
   const navigate = useNavigate();
-  const location = useLocation();
+  const location = useReactRouterLocation();
 
   // Effect to receive location from map page
   useEffect(() => {
@@ -42,7 +52,7 @@ const Profile: React.FC = () => {
 
   // Effect to automatically fetch current location when adding a new zone
   useEffect(() => {
-    if (isAddingZone) {
+    if (isAddingZone && !location.state?.newZoneLocation) { // Only fetch if not coming from map
       setIsFetchingDefaultLocation(true);
       setNewZoneLocation(null); // Clear previous selection
 
@@ -59,7 +69,7 @@ const Profile: React.FC = () => {
         { timeout: 10000 }
       );
     }
-  }, [isAddingZone]);
+  }, [isAddingZone, location.state]);
 
   // Effect to perform reverse geocoding whenever the location changes
   useEffect(() => {
@@ -103,15 +113,16 @@ const Profile: React.FC = () => {
   const fetchActivity = async () => {
     if (!auth?.user) return;
     setActivityLoading(true);
-    const { data: vibes } = await supabase.from('vibes').select('*').eq('user_id', auth.user.id).order('created_at', { ascending: false });
-    const { data: sos } = await supabase.from('sos').select('*').eq('user_id', auth.user.id).order('created_at', { ascending: false });
+    const { data: vibesData } = await supabase.from('vibes').select('*').eq('user_id', auth.user.id).order('created_at', { ascending: false });
+    const { data: sosData } = await supabase.from('sos').select('*').eq('user_id', auth.user.id).order('created_at', { ascending: false });
     
-    const allVibes = vibes || [];
-    const allSos = sos || [];
+    const allVibes = (vibesData || []).map(v => ({ ...v, location: parseLocation(v.location) }));
+    const allSos = (sosData || []).map(s => ({ ...s, location: parseLocation(s.location) }));
+
     const validVibeTypes = new Set(Object.values(VibeType));
-    const validVibes = allVibes.filter(v => v.vibe_type && validVibeTypes.has(v.vibe_type as VibeType));
+    const validVibes = allVibes.filter(v => v.vibe_type && validVibeTypes.has(v.vibe_type as VibeType) && v.location);
     
-    const combined = [...validVibes, ...allSos].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const combined = [...validVibes, ...allSos.filter(s => s.location)].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     setReports(combined as (Vibe | SOS)[]);
     setActivityLoading(false);
   };
@@ -120,8 +131,12 @@ const Profile: React.FC = () => {
     if (!auth?.user) return;
     setZonesLoading(true);
     const { data, error } = await supabase.from('safe_zones').select('*').eq('user_id', auth.user.id).order('created_at');
-    if (error) console.error('Error fetching safe zones:', error.message);
-    else setSafeZones(data || []);
+    if (error) {
+        console.error('Error fetching safe zones:', error.message);
+    } else {
+        const parsedZones = (data || []).map(z => ({...z, location: parseLocation(z.location)})).filter(z => z.location);
+        setSafeZones(parsedZones as SafeZone[]);
+    }
     setZonesLoading(false);
   };
 
@@ -147,11 +162,13 @@ const Profile: React.FC = () => {
       alert("Please provide a name, radius, and select a location on the map.");
       return;
     }
+    // PostGIS requires POINT(lng lat) format
+    const locationPayload = `POINT(${newZoneLocation.lng} ${newZoneLocation.lat})`;
     const { error } = await supabase.from('safe_zones').insert({
         user_id: auth.user.id,
         name: newZoneName,
         radius_km: newZoneRadius,
-        location: newZoneLocation
+        location: locationPayload
     });
 
     if (error) alert(`Error saving zone: ${error.message}`);

@@ -92,8 +92,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
 
   return (
-    <div className="min-h-screen bg-brand-primary flex flex-col">
-      <main className="flex-grow pb-20 relative">
+    <div className="h-full bg-brand-primary flex flex-col">
+      <main className="flex-grow pb-20 relative overflow-y-auto">
         {children}
       </main>
       <BottomNavbar />
