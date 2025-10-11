@@ -103,8 +103,9 @@ const Services: React.FC = () => {
         return;
     }
 
-    // FIX: Cast the initial value of reduce to Record<string, number> to ensure correct type inference for `acc` and `vibeCounts`.
-    // This resolves downstream errors in arithmetic operations.
+    // Fix: Explicitly type the initial value for the reduce function to ensure `vibeCounts`
+    // has the correct type (`Record<string, number>`). This allows TypeScript to correctly
+    // infer types for values used in later arithmetic operations, resolving the errors.
     const vibeCounts = nearbyVibes.reduce((acc, vibe) => {
         acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
         return acc;
@@ -284,8 +285,9 @@ Take a moment to enjoy a walk, but always be aware of your surroundings.`;
         
         setBriefingResult({ summary, sources });
 
-    } catch (error: any) {
-        setBriefingError(error.message || "Failed to generate safety briefing.");
+    // Fix: Correctly handle errors in the catch block to prevent crashes and update UI state.
+    } catch (err: any) {
+        setBriefingError(err.message || "Failed to generate safety briefing.");
     } finally {
         setBriefingLoading(false);
     }

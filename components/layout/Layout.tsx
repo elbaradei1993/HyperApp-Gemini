@@ -5,6 +5,7 @@ import { AuthContext } from '../../contexts/AuthContext';
 import type { SafeZone } from '../../types';
 import { VibeType } from '../../types';
 import { haversineDistance } from '../../utils/geolocation';
+import Header from './Header';
 
 interface LayoutProps {
   children: ReactNode;
@@ -93,7 +94,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="h-full bg-brand-primary flex flex-col">
-      <main className="flex-grow pb-20 relative overflow-y-auto">
+      <Header />
+      <main className="flex-grow pt-16 pb-20 relative overflow-y-auto">
         {children}
       </main>
       <BottomNavbar />

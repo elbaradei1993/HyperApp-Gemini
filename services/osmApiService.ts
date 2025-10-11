@@ -14,8 +14,10 @@ interface LatLng {
  */
 export const getNearbyPlacesList = async (coords: LatLng, radiusMeters: number): Promise<string[]> => {
   // This query looks for common amenities that might influence a neighborhood's vibe.
+  // The timeout is set to 60 seconds; the public Overpass API can be slow under load,
+  // and a higher timeout makes our request more likely to succeed.
   const overpassQuery = `
-    [out:json][timeout:25];
+    [out:json][timeout:60];
     (
       node["amenity"~"bar|cafe|restaurant|police|hospital|bus_station|train_station|park|nightclub"](around:${radiusMeters},${coords.lat},${coords.lng});
       way["amenity"~"bar|cafe|restaurant|police|hospital|bus_station|train_station|park|nightclub"](around:${radiusMeters},${coords.lat},${coords.lng});

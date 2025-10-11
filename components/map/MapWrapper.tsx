@@ -66,12 +66,18 @@ const MapWrapper: React.FC = () => {
   const auth = useContext(AuthContext);
   const { vibes, sos, events, loading: dataLoading, error: dataError } = useData();
   
-  const location = useLocation();
+  const reactRouterLocation = useLocation();
   const navigate = useNavigate();
-  const isSettingZone = location.state?.settingZone === true;
+  const isSettingZone = reactRouterLocation.state?.settingZone === true;
+  const flyToLocation = reactRouterLocation.state?.flyToLocation;
+
 
   const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [heatmapFilters, setHeatmapFilters] = useState<Set<VibeType>>(
+    // Default to showing the most critical vibes
+    new Set([VibeType.Dangerous, VibeType.Suspicious, VibeType.Noisy])
+  );
   const [summaryModalState, setSummaryModalState] = useState<SummaryModalState>({ isOpen: false, isLoading: false, summary: null, error: null });
   
   // --- Map Initialization Effect ---
@@ -97,6 +103,29 @@ const MapWrapper: React.FC = () => {
       }, 0);
     }
   }, []);
+
+  // Effect for handling navigation from search results
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && flyToLocation) {
+        map.flyTo([flyToLocation.lat, flyToLocation.lng], 17, {
+            animate: true,
+            duration: 1.5
+        });
+        
+        // Add a temporary pulsing marker to highlight the location
+        const pulseIcon = L.divIcon({
+            className: 'css-icon-pulse',
+            html: '<div></div>',
+            iconSize: [20, 20]
+        });
+        const marker = L.marker([flyToLocation.lat, flyToLocation.lng], { icon: pulseIcon }).addTo(map);
+        setTimeout(() => map.removeLayer(marker), 3000); // Remove after 3 seconds
+        
+        // Clean up router state to prevent re-flying on refresh
+        window.history.replaceState({}, document.title);
+    }
+  }, [flyToLocation]);
 
   // --- Safe Zone Fetching Effect (User-specific data) ---
   useEffect(() => {
@@ -161,7 +190,10 @@ const MapWrapper: React.FC = () => {
           [VibeType.Safe]: 0.2, [VibeType.Calm]: 0.3, [VibeType.Noisy]: 0.5,
           [VibeType.LGBTQIAFriendly]: 0.2, [VibeType.Suspicious]: 0.7, [VibeType.Dangerous]: 1.0,
       };
-      const heatmapData = vibes
+      
+      const filteredVibes = vibes.filter(vibe => heatmapFilters.has(vibe.vibe_type));
+
+      const heatmapData = filteredVibes
           .map(v => [v.location.lat, v.location.lng, vibeIntensityMap[v.vibe_type]])
           .filter(v => v[2] > 0);
           
@@ -194,7 +226,7 @@ const MapWrapper: React.FC = () => {
             map.addLayer(markerClusterGroupRef.current);
         }
     }
-  }, [vibes, sos, events, safeZones, showHeatmap, dataLoading]);
+  }, [vibes, sos, events, safeZones, showHeatmap, heatmapFilters, dataLoading]);
   
   // --- Map Interaction Effect ---
   useEffect(() => {
@@ -241,9 +273,44 @@ const MapWrapper: React.FC = () => {
     }
   }, [isSettingZone, navigate, vibes]);
 
+  const handleFilterToggle = (vibeType: VibeType) => {
+    setHeatmapFilters(prevFilters => {
+        const newFilters = new Set(prevFilters);
+        if (newFilters.has(vibeType)) {
+            newFilters.delete(vibeType);
+        } else {
+            newFilters.add(vibeType);
+        }
+        return newFilters;
+    });
+  };
+
   return (
     <div className="h-full w-full relative">
       <div ref={mapContainerRef} className={`absolute inset-0 z-0 ${isSettingZone ? 'cursor-crosshair' : ''}`} />
+      <style>{`
+        .css-icon-pulse {
+            background-color: #4299e1;
+            border-radius: 50%;
+            border: 2px solid #fff;
+            box-shadow: 0 0 0 0 rgba(66, 153, 225, 1);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(66, 153, 225, 0.7);
+            }
+            70% {
+                transform: scale(1.5);
+                box-shadow: 0 0 0 10px rgba(66, 153, 225, 0);
+            }
+            100% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(66, 153, 225, 0);
+            }
+        }
+      `}</style>
       {dataError && (
         <div className="absolute top-0 left-0 right-0 z-[1000] p-4 bg-red-900/80 text-red-200 text-center text-sm backdrop-blur-sm">
           <p className="font-bold">Map Data Error</p>
@@ -258,6 +325,26 @@ const MapWrapper: React.FC = () => {
           <FireIcon className="w-6 h-6" />
         </button>
       </div>
+
+      {showHeatmap && (
+        <div className="absolute top-24 right-4 z-[1000] bg-brand-secondary/90 backdrop-blur-sm p-3 rounded-lg shadow-lg max-w-xs w-48 animate-fade-in-down">
+          <p className="text-sm font-semibold mb-2 text-white border-b border-gray-600 pb-1">Heatmap Filters</p>
+          <div className="flex flex-col space-y-1">
+            {Object.entries(VIBE_CONFIG).map(([vibeType, config]) => (
+              <label key={vibeType} className="flex items-center space-x-2 cursor-pointer text-gray-200 hover:text-white">
+                <input
+                  type="checkbox"
+                  checked={heatmapFilters.has(vibeType as VibeType)}
+                  onChange={() => handleFilterToggle(vibeType as VibeType)}
+                  className="form-checkbox h-4 w-4 rounded bg-gray-700 border-gray-600 text-brand-accent focus:ring-brand-accent"
+                />
+                <span className="text-sm">{config.displayName}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       <AreaSummaryModal {...summaryModalState} onClose={() => setSummaryModalState({ isOpen: false, isLoading: false, summary: null, error: null })} />
     </div>
   );

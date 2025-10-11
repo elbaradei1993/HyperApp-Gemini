@@ -48,33 +48,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     };
 
-    const handleSession = async (session: Session | null) => {
-      const currentUser = session?.user ?? null;
-      setSession(session);
-      setUser(currentUser);
-      if (currentUser) {
-        // Ensure profile exists before we stop loading
-        await manageUserProfile(currentUser);
-      }
-      setLoading(false);
-    };
-
-    // Handle the initial session check on app load
-    supabase.auth.getSession().then(response => {
-      const { data, error } = response;
-      if (error) {
-        console.error("Error fetching session on initial load:", error.message);
-        handleSession(null);
-      } else {
-        // data is { session: Session | null }
-        handleSession(data.session);
-      }
-    });
-
-    // Listen for any auth state changes (sign in, sign out)
+    // The onAuthStateChange listener is the single source of truth for auth state.
+    // It fires once on initial load with the current session, and then again
+    // whenever the auth state changes (e.g., login, logout).
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        handleSession(session);
+      async (_event, session) => {
+        const currentUser = session?.user ?? null;
+        setSession(session);
+        setUser(currentUser);
+        if (currentUser) {
+          // Ensure profile exists before we stop loading
+          await manageUserProfile(currentUser);
+        }
+        setLoading(false);
       }
     );
 

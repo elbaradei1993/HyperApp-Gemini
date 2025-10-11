@@ -9,6 +9,7 @@ import Trending from './pages/Trending';
 import Profile from './pages/Account';
 import Login from './pages/Login';
 import Layout from './components/layout/Layout';
+import Activity from './pages/Activity';
 
 const ProtectedRoute: React.FC = () => {
   const auth = useContext(AuthContext);
@@ -42,6 +43,7 @@ const AppRoutes: React.FC = () => {
                     <Route path="/services" element={<Services />} />
                     <Route path="/trending" element={<Trending />} />
                     <Route path="/profile" element={<Profile />} />
+                    <Route path="/activity" element={<Activity />} />
                 </Route>
             </Routes>
         </HashRouter>

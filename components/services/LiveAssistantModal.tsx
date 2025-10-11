@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality, Blob, FunctionDeclaration, Type, LiveSession } from '@google/genai';
+import { GoogleGenAI, LiveServerMessage, Modality, Blob, FunctionDeclaration, Type } from '@google/genai';
 import { decode, decodeAudioData, encode } from '../../utils/audio';
 import { supabase } from '../../services/supabaseClient';
 import { AuthContext } from '../../contexts/AuthContext';
@@ -16,6 +16,14 @@ interface TranscriptionEntry {
     text: string;
 }
 
+// FIX: Define a local interface for the LiveSession to avoid importing a non-exported type.
+// This provides type safety for the session object's methods used in this component.
+interface LiveSession {
+    sendRealtimeInput(input: { media: Blob }): void;
+    sendToolResponse(response: { functionResponses: { id: string; name: string; response: { result: string; }; } }): void;
+    close(): void;
+}
+
 // Helper to convert Supabase GeoJSON point to our LatLng format
 const parseLocation = (loc: any): Location | null => {
     if (loc && loc.coordinates && loc.coordinates.length === 2) {
@@ -30,11 +38,13 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
     const auth = useContext(AuthContext);
 
     const sessionPromiseRef = useRef<Promise<LiveSession> | null>(null);
-    const inputAudioContextRef = useRef<AudioContext>();
-    const outputAudioContextRef = useRef<AudioContext>();
-    const scriptProcessorRef = useRef<ScriptProcessorNode>();
-    const mediaStreamSourceRef = useRef<MediaStreamAudioSourceNode>();
-    const streamRef = useRef<MediaStream>();
+    // FIX: Initialize useRef with `null` to satisfy older TypeScript/React type definitions
+    // that may not support the no-argument version of useRef.
+    const inputAudioContextRef = useRef<AudioContext | null>(null);
+    const outputAudioContextRef = useRef<AudioContext | null>(null);
+    const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+    const mediaStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
     const outputSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
     const nextStartTimeRef = useRef(0);
     

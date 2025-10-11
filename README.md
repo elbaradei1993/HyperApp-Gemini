@@ -56,7 +56,14 @@ This is the most critical step. The project **will not work** without a correctl
     *   Copy its entire content.
     *   Paste it into the Supabase SQL Editor and click **Run**. Wait for the "Success. No rows returned" message.
 
-After running this script successfully, your database will be fully configured.
+3.  **Enable Real-Time Broadcasting (CRITICAL FOR LIVE UPDATES):**
+    *   For the map and other features to update in real-time, you must tell Supabase which tables to broadcast changes from.
+    *   In your Supabase project dashboard, go to **Database** > **Replication**.
+    *   Under the "Source" section, you will likely see text that says "0 tables". Click on it.
+    *   A dialog will appear. Check the boxes for the `vibes`, `sos`, `events`, and `safe_zones` tables.
+    *   Click **Save**. The text should now say "4 tables", and real-time updates will be enabled.
+
+After running these steps successfully, your database will be fully configured.
 
 ### 4. Google Gemini API Key
 
@@ -70,8 +77,8 @@ The AI features (Smart Vibe Explanation, Trending Insights, etc.) are powered by
 -   **"Connection Error" / "TypeError: Failed to fetch"**: Your browser is blocking requests to Supabase.
     -   **Solution**: Follow the instructions in the **"CORS Configuration"** section above. This is the most common setup issue. Also, try disabling any ad-blockers or privacy extensions, as they can sometimes interfere with requests.
 
--   **"An internal error occurred" / Map doesn't load or is empty**: This is almost always a sign of a problem with the database setup. It means the app connected to Supabase, but the query failed, likely due to a missing table or incorrect Row Level Security (RLS) policies.
-    -   **Solution**: Double-check that you have enabled the `postgis` extension. Then, carefully re-run the `supabase/schema.sql` script. This will reset your tables and security policies to the correct state.
+-   **Map / Data doesn't update after reporting a vibe**: This means the real-time connection is not working.
+    -   **Solution**: You have likely missed step **3.3: Enable Real-Time Broadcasting**. Follow those instructions to enable replication on your tables.
 
--   **"Failed to fetch..." errors (other than TypeError)**: These messages often point to a missing table or incorrect RLS policies.
-    -   **Solution**: Re-run the `supabase/schema.sql` script in the Supabase SQL Editor.
+-   **"An internal error occurred" / Map is empty**: This is almost always a sign of a problem with the database setup. It means the app connected to Supabase, but the query failed, likely due to a missing table or incorrect Row Level Security (RLS) policies.
+    -   **Solution**: Double-check that you have enabled the `postgis` extension. Then, carefully re-run the `supabase/schema.sql` script. This will reset your tables and security policies to the correct state.
