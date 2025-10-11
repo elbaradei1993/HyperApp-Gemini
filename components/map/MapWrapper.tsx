@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../services/supabaseClient';
@@ -18,6 +19,8 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
+const validVibeTypes = new Set(Object.values(VibeType));
+
 const getVibeIcon = (vibeType: VibeType) => {
   const color = {
     [VibeType.Safe]: 'green',
@@ -26,7 +29,7 @@ const getVibeIcon = (vibeType: VibeType) => {
     [VibeType.LGBTQIAFriendly]: 'violet',
     [VibeType.Suspicious]: 'orange',
     [VibeType.Dangerous]: 'red',
-  }[vibeType as VibeType] || 'grey'; // Fallback to grey for old/invalid data
+  }[vibeType as VibeType];
 
   return new L.Icon({
     iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
@@ -101,7 +104,7 @@ const MapWrapper: React.FC = () => {
     if (type === 'vibe') {
         const vibe = item as Vibe;
         icon = getVibeIcon(vibe.vibe_type);
-        const displayName = vibeDisplayNameMapping[vibe.vibe_type] || vibe.vibe_type;
+        const displayName = vibeDisplayNameMapping[vibe.vibe_type];
         basePopupContent = `<strong>Vibe:</strong> ${displayName}<br><strong>By:</strong> ${vibe.profiles?.username || 'anonymous'}`;
     } else if (type === 'sos') {
         const sos = item as SOS;
@@ -151,28 +154,47 @@ const MapWrapper: React.FC = () => {
       // --- DATA FETCHING & SUBSCRIPTIONS ---
       // Now that the map is guaranteed to exist, we can fetch data and subscribe.
       const fetchInitialData = async () => {
-        const { data: vibesData } = await supabase.from('vibes').select('*, profiles(username)');
-        const { data: sosData } = await supabase.from('sos').select('*, profiles(username)');
-        const { data: eventsData } = await supabase.from('events').select('*, profiles(username)');
+        const vibesPromise = supabase.from('vibes').select('*, profiles(username)');
+        const sosPromise = supabase.from('sos').select('*, profiles(username)');
+        const eventsPromise = supabase.from('events').select('*, profiles(username)');
 
-        if (vibesData) vibesData.forEach(v => addOrUpdateMarker(v as Vibe, 'vibe'));
-        if (sosData) sosData.forEach(s => addOrUpdateMarker(s as SOS, 'sos'));
-        if (eventsData) eventsData.forEach(e => addOrUpdateMarker(e as Event, 'event'));
+        // FIX: The variable `eventsResponse` was used in `Promise.all` before it was declared. It should be `eventsPromise`.
+        const [vibesResponse, sosResponse, eventsResponse] = await Promise.all([vibesPromise, sosPromise, eventsPromise]);
+
+        if (vibesResponse.error) console.error("Error fetching initial vibes:", vibesResponse.error.message);
+        if (sosResponse.error) console.error("Error fetching initial SOS alerts:", sosResponse.error.message);
+        if (eventsResponse.error) console.error("Error fetching initial events:", eventsResponse.error.message);
+        
+        const vibesData = (vibesResponse.data || []).filter(v => v.vibe_type && validVibeTypes.has(v.vibe_type as VibeType));
+        const sosData = sosResponse.data || [];
+        const eventsData = eventsResponse.data || [];
+
+        vibesData.forEach(v => addOrUpdateMarker(v as Vibe, 'vibe'));
+        sosData.forEach(s => addOrUpdateMarker(s as SOS, 'sos'));
+        eventsData.forEach(e => addOrUpdateMarker(e as Event, 'event'));
+        
         setInitialDataLoaded(true);
       };
 
       const handleRecordChange = (payload: any) => {
           const table = payload.table;
-          let record = payload.new as any;
+          const record = payload.new as Vibe | SOS | Event;
           const oldRecord = payload.old as any;
           let type: 'vibe' | 'sos' | 'event' | null = null;
+
           if (table === 'vibes') type = 'vibe';
           else if (table === 'sos') type = 'sos';
           else if (table === 'events') type = 'event';
           if (!type) return;
 
+          // If a vibe is invalid, ensure it gets removed or is not added.
+          if (type === 'vibe' && !validVibeTypes.has((record as Vibe).vibe_type)) {
+              removeMarker(`${type}-${record.id}`);
+              return;
+          }
+
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-              addOrUpdateMarker(record as any, type!);
+              addOrUpdateMarker(record, type);
           } else if (payload.eventType === 'DELETE') {
               removeMarker(`${type}-${oldRecord.id}`);
           }
@@ -212,21 +234,31 @@ const MapWrapper: React.FC = () => {
             if (vibesError) throw new Error(`Could not fetch vibes: ${vibesError.message}`);
 
             // For SOS and Events, client-side filtering is acceptable for now as they are less frequent.
-            const allSos = (await supabase.from('sos').select('*').eq('resolved', false)).data || [];
+            const sosResponse = await supabase.from('sos').select('*').eq('resolved', false);
+            if (sosResponse.error) console.error("Error fetching SOS data:", sosResponse.error);
+            const allSos = sosResponse.data || [];
             const nearbySos = allSos.filter(s => s.location && haversineDistance(latlng, s.location) <= 1);
             
-            const allEvents = (await supabase.from('events').select('*')).data || [];
+            const eventsResponse = await supabase.from('events').select('*');
+            if (eventsResponse.error) console.error("Error fetching events data:", eventsResponse.error);
+            const allEvents = eventsResponse.data || [];
             const nearbyEvents = allEvents.filter(e => e.location && haversineDistance(latlng, e.location) <= 1);
     
             let prompt = "You are a local community safety assistant. Based on the following real-time data for a 1km radius, provide a concise and helpful summary for a user. Summarize the current situation in a friendly, easy-to-understand paragraph. Mention the dominant vibe and any important events or alerts. Conclude with a practical tip. If all data fields are empty or contain 'None', state that there are no recent community reports for this area and provide a general, universally applicable safety tip.\n\n--- DATA ---\n";
     
             if (nearbyVibes && nearbyVibes.length > 0) {
                 const vibeCounts = nearbyVibes.reduce((acc: any, vibe: Vibe) => {
-                    acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
+                    if (validVibeTypes.has(vibe.vibe_type as VibeType)) {
+                        acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
+                    }
                     return acc;
                 }, {});
-                const dominantVibe = Object.keys(vibeCounts).reduce((a, b) => vibeCounts[a] > vibeCounts[b] ? a : b);
-                prompt += `- Vibe Reports: ${nearbyVibes.length} total. The dominant vibe is "${vibeDisplayNameMapping[dominantVibe] || dominantVibe}".\n`;
+                if (Object.keys(vibeCounts).length > 0) {
+                    const dominantVibe = Object.keys(vibeCounts).reduce((a, b) => vibeCounts[a] > vibeCounts[b] ? a : b);
+                    prompt += `- Vibe Reports: ${nearbyVibes.length} total. The dominant vibe is "${vibeDisplayNameMapping[dominantVibe] || dominantVibe}".\n`;
+                } else {
+                     prompt += "- Vibe Reports: None in this area.\n";
+                }
             } else {
                 prompt += "- Vibe Reports: None in this area.\n";
             }
@@ -273,8 +305,8 @@ const MapWrapper: React.FC = () => {
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !initialDataLoaded) return;
-        supabase.from('vibes').select('location, vibe_type').then(({ data: vibesData }) => {
-            if (!vibesData) return;
+        supabase.from('vibes').select('location, vibe_type').then(({ data }) => {
+            const vibesData = (data || []).filter(v => v.vibe_type && validVibeTypes.has(v.vibe_type as VibeType));
             if (heatLayerRef.current) { map.removeLayer(heatLayerRef.current); heatLayerRef.current = null; }
             if (showHeatmap) {
                 if (markerClusterGroupRef.current) map.removeLayer(markerClusterGroupRef.current);
@@ -286,8 +318,8 @@ const MapWrapper: React.FC = () => {
                     [VibeType.Suspicious]: 0.7,
                     [VibeType.Dangerous]: 1.0,
                 };
-                const heatmapData = (vibesData as Vibe[]).filter(v => v.location).map(v => 
-                    [v.location.lat, v.location.lng, vibeIntensityMap[v.vibe_type] || 0]
+                const heatmapData = vibesData.filter(v => v.location).map(v => 
+                    [v.location.lat, v.location.lng, vibeIntensityMap[v.vibe_type]]
                 ).filter(v => v[2] > 0);
                 if (heatmapData.length > 0) {
                     heatLayerRef.current = L.heatLayer(heatmapData, {

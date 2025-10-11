@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
@@ -104,7 +105,13 @@ const Profile: React.FC = () => {
     setActivityLoading(true);
     const { data: vibes } = await supabase.from('vibes').select('*').eq('user_id', auth.user.id).order('created_at', { ascending: false });
     const { data: sos } = await supabase.from('sos').select('*').eq('user_id', auth.user.id).order('created_at', { ascending: false });
-    const combined = [...(vibes || []), ...(sos || [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    
+    const allVibes = vibes || [];
+    const allSos = sos || [];
+    const validVibeTypes = new Set(Object.values(VibeType));
+    const validVibes = allVibes.filter(v => v.vibe_type && validVibeTypes.has(v.vibe_type as VibeType));
+    
+    const combined = [...validVibes, ...allSos].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     setReports(combined as (Vibe | SOS)[]);
     setActivityLoading(false);
   };
@@ -175,7 +182,6 @@ const Profile: React.FC = () => {
     [VibeType.Suspicious]: { emoji: '🤨', textClass: 'text-orange-300', displayName: 'Suspicious' },
     [VibeType.Dangerous]: { emoji: '😠', textClass: 'text-red-300', displayName: 'Dangerous' },
   };
-  const DEFAULT_VIBE_CONFIG = { emoji: '❓', textClass: 'text-gray-400', displayName: 'Legacy Vibe' };
 
   const renderActivity = () => {
     if (activityLoading) return <p>Loading activity...</p>;
@@ -189,7 +195,8 @@ const Profile: React.FC = () => {
           
           if (isVibe) {
             const vibe = report as Vibe;
-            const config = VIBE_CONFIG[vibe.vibe_type] || DEFAULT_VIBE_CONFIG;
+            const config = VIBE_CONFIG[vibe.vibe_type];
+            if (!config) return null; // Should not happen with filtering, but good for safety
             return (
               <div key={`vibe-${vibe.id}`} className="flex items-center space-x-3 text-sm">
                 <span className="text-xl">{config.emoji}</span>

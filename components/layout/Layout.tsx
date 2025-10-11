@@ -3,6 +3,7 @@ import BottomNavbar from './BottomNavbar';
 import { supabase } from '../../services/supabaseClient';
 import { AuthContext } from '../../contexts/AuthContext';
 import type { SafeZone } from '../../types';
+import { VibeType } from '../../types';
 import { haversineDistance } from '../../utils/geolocation';
 
 interface LayoutProps {
@@ -44,10 +45,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           let isCriticalAlert = false;
           let alertType = '';
 
-          if (payload.table === 'vibes' && newRecord.vibe_type === 'unsafe') {
+          if (payload.table === 'vibes' && newRecord.vibe_type === VibeType.Dangerous) {
             alertLocation = newRecord.location;
             isCriticalAlert = true;
-            alertType = 'Unsafe Vibe';
+            alertType = 'Dangerous Vibe';
           } else if (payload.table === 'sos') {
             alertLocation = newRecord.location;
             isCriticalAlert = true;

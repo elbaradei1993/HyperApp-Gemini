@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useContext } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { AuthContext } from '../contexts/AuthContext';
@@ -16,8 +18,6 @@ const VIBE_CONFIG: Record<string, { emoji: string; color: string; textClass: str
   [VibeType.Suspicious]: { emoji: '🤨', color: 'orange', textClass: 'text-orange-300', bgClass: 'bg-orange-500/20', barClass: 'bg-orange-500', displayName: 'Suspicious' },
   [VibeType.Dangerous]: { emoji: '😠', color: 'red', textClass: 'text-red-300', bgClass: 'bg-red-500/20', barClass: 'bg-red-500', displayName: 'Dangerous' },
 };
-const DEFAULT_VIBE_CONFIG = { emoji: '❓', color: 'gray', textClass: 'text-gray-400', bgClass: 'bg-gray-500/20', barClass: 'bg-gray-500', displayName: 'Legacy' };
-
 
 interface AreaVibeStats {
   dominant: { type: VibeType; percentage: number } | null;
@@ -103,36 +103,24 @@ const Services: React.FC = () => {
             nearbyVibes = rpcVibes as Vibe[];
         }
         
-        if (!nearbyVibes || nearbyVibes.length === 0) {
+        const validVibeTypes = new Set(Object.values(VibeType));
+        const validNearbyVibes = (nearbyVibes || []).filter(v => v.vibe_type && validVibeTypes.has(v.vibe_type as VibeType));
+
+        if (validNearbyVibes.length === 0) {
             setAreaVibeStats({ dominant: null, breakdown: {}, total: 0 });
             setPulseLoading(false);
             return;
         }
 
-        const vibeCounts = nearbyVibes.reduce<Record<string, number>>((acc, vibe) => {
-            if (vibe?.vibe_type) {
-                acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
-            }
+        const vibeCounts = validNearbyVibes.reduce<Record<string, number>>((acc, vibe) => {
+            acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
             return acc;
         }, {});
         
-        if (Object.keys(vibeCounts).length === 0) {
-            setAreaVibeStats({ dominant: null, breakdown: {}, total: 0 });
-            setPulseLoading(false);
-            return;
-        }
-
-        const totalValidVibes = Object.values(vibeCounts).reduce((sum, count) => sum + count, 0);
-        // Fix: Refactor breakdown calculation to avoid TypeScript type errors with .concat and improve readability.
-        const enumBreakdown = Object.fromEntries(
-            Object.values(VibeType).map(type => [type, ((vibeCounts[type] || 0) / totalValidVibes) * 100])
+        const totalValidVibes = validNearbyVibes.length;
+        const breakdown = Object.fromEntries(
+            Object.entries(vibeCounts).map(([type, count]) => [type, (count / totalValidVibes) * 100])
         );
-        const legacyBreakdown = Object.fromEntries(
-            Object.keys(vibeCounts)
-                .filter(type => !Object.values(VibeType).includes(type as VibeType))
-                .map(type => [type, ((vibeCounts[type] || 0) / totalValidVibes) * 100])
-        );
-        const breakdown = { ...enumBreakdown, ...legacyBreakdown };
 
         const dominantVibeEntry = Object.entries(vibeCounts).sort((a, b) => b[1] - a[1])[0];
         
@@ -191,7 +179,7 @@ const Services: React.FC = () => {
         if (areaVibeStats.total > 0 && areaVibeStats.dominant) {
             const breakdownText = Object.entries(areaVibeStats.breakdown)
                 .filter(([, percentage]) => (percentage as number) > 0)
-                .map(([type, percentage]) => `${(percentage as number).toFixed(0)}% ${(VIBE_CONFIG[type]?.displayName || type)}`)
+                .map(([type, percentage]) => `${(percentage as number).toFixed(0)}% ${VIBE_CONFIG[type].displayName}`)
                 .join(', ');
             context += `- Community Vibe Breakdown: ${breakdownText}\n`;
         } else {
@@ -308,7 +296,6 @@ Take a moment to enjoy a walk, but always be aware of your surroundings.`;
         
         setBriefingResult({ summary, sources });
 
-    // Fix: Rewriting the catch/finally block to ensure variables are correctly scoped and to fix potential invisible syntax errors.
     } catch (error: any) {
         setBriefingError(error.message || "Failed to generate safety briefing.");
     } finally {
@@ -339,17 +326,18 @@ Take a moment to enjoy a walk, but always be aware of your surroundings.`;
             </div>
           ) : areaVibeStats && areaVibeStats.total > 0 ? (
             <div>
-              <p className={`text-xl font-bold ${(VIBE_CONFIG[areaVibeStats.dominant!.type] || DEFAULT_VIBE_CONFIG).textClass}`}>
-                {areaVibeStats.dominant!.percentage.toFixed(0)}% {(VIBE_CONFIG[areaVibeStats.dominant!.type] || DEFAULT_VIBE_CONFIG).displayName}
+              <p className={`text-xl font-bold ${VIBE_CONFIG[areaVibeStats.dominant!.type].textClass}`}>
+                {areaVibeStats.dominant!.percentage.toFixed(0)}% {VIBE_CONFIG[areaVibeStats.dominant!.type].displayName}
               </p>
               <div className="flex h-2 rounded-full overflow-hidden bg-gray-700 mt-2">
-                 {Object.entries(areaVibeStats.breakdown).map(([type, percentage]: [string, number]) => {
-                    const config = VIBE_CONFIG[type] || DEFAULT_VIBE_CONFIG;
-                    return percentage > 0 && <div
+                 {Object.entries(areaVibeStats.breakdown).map(([type, percentage]) => {
+                    const config = VIBE_CONFIG[type];
+                    if (!config) return null; // Should not happen due to filtering
+                    return <div
                       key={type}
                       className={config.barClass}
                       style={{ width: `${percentage}%` }}
-                      title={`${config.displayName}: ${percentage.toFixed(1)}%`}
+                      title={`${config.displayName}: ${(percentage as number).toFixed(1)}%`}
                     ></div>
                  })}
               </div>

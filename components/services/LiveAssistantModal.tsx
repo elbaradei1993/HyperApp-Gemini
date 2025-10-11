@@ -3,6 +3,7 @@ import { GoogleGenAI, LiveServerMessage, Modality, Blob, FunctionDeclaration, Ty
 import { decode, decodeAudioData, encode } from '../../utils/audio';
 import { supabase } from '../../services/supabaseClient';
 import { AuthContext } from '../../contexts/AuthContext';
+import { Vibe, VibeType } from '../../types';
 
 interface LiveAssistantModalProps {
   isOpen: boolean;
@@ -102,12 +103,74 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
                 
                 setStatus('Requesting Permissions...');
                 streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                setStatus('Getting Location...');
+                let userAddress = 'an unknown location';
+                let userLocation: { latitude: number, longitude: number } | null = null;
+                try {
+                    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+                    });
+                    userLocation = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+                    const geoResponse = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${userLocation.latitude}&lon=${userLocation.longitude}`);
+                    if (geoResponse.ok) {
+                        const geoData = await geoResponse.json();
+                        userAddress = geoData.display_name || 'an address that could not be determined';
+                    }
+                } catch (locationError: any) {
+                    console.warn("Could not get user's location for AI context:", locationError.message);
+                }
+                
+                setStatus('Analyzing Vibe Data...');
+                let vibeContext = 'No recent community vibe data is available for this area.';
+                let initialGreeting = 'Hello! I am your live emergency assistant. How can I help you?';
+
+                if (userLocation) {
+                    const { data: nearbyVibes, error: vibesError } = await supabase.rpc('get_nearby_vibes', {
+                        user_lat: userLocation.latitude,
+                        user_lng: userLocation.longitude,
+                        radius_km: 1
+                    });
+
+                    if (vibesError) {
+                        console.warn("Could not fetch nearby vibes for AI context:", vibesError.message);
+                    } else if (nearbyVibes && nearbyVibes.length > 0) {
+                        const vibeDisplayNameMapping: Record<string, string> = {
+                            [VibeType.Safe]: 'Safe', [VibeType.Calm]: 'Calm', [VibeType.Noisy]: 'Noisy', [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly', [VibeType.Suspicious]: 'Suspicious', [VibeType.Dangerous]: 'Dangerous',
+                        };
+                        
+                        const vibeCounts = (nearbyVibes as Vibe[]).reduce((acc: any, vibe: Vibe) => {
+                            acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
+                            return acc;
+                        }, {});
+                        const totalVibes = nearbyVibes.length;
+                        const dominantVibe = Object.keys(vibeCounts).reduce((a, b) => vibeCounts[a] > vibeCounts[b] ? a : b);
+                        const dominantVibeName = vibeDisplayNameMapping[dominantVibe] || dominantVibe;
+
+                        initialGreeting = `Hello! I am your live emergency assistant. The current vibe in your area is reported as "${dominantVibeName}". How can I help you?`;
+                        
+                        const breakdownText = Object.entries(vibeCounts)
+                            .map(([type, count]) => `${(((count as number) / totalVibes) * 100).toFixed(0)}% ${vibeDisplayNameMapping[type] || type}`)
+                            .join(', ');
+
+                        vibeContext = `The area has ${totalVibes} recent report(s). Breakdown: ${breakdownText}.`;
+                    }
+                }
                 
                 setStatus('Connecting...');
                 inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
                 outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
 
-                setTranscription([{ speaker: 'model', text: 'Hello! I am your live emergency assistant. How can I help you?' }]);
+                setTranscription([{ speaker: 'model', text: initialGreeting }]);
+                
+                const systemInstruction = `You are a calm, helpful, and concise emergency assistant for the HyperAPP community safety app. You have access to real-time community data.
+
+--- CONTEXT ---
+- User's Approximate Location: ${userAddress}
+- Local Community Vibe: ${vibeContext}
+--- END CONTEXT ---
+
+Your primary goal is to assess the user's situation and, if necessary, dispatch help using the 'sendSOSAlert' function. Use the location and vibe context to provide more specific guidance and ask relevant questions. For example, if the area is reported as 'Suspicious', you can ask what is making them feel that way. Only use the 'sendSOSAlert' function if you believe there is a genuine emergency that requires intervention.`;
 
                 sessionPromiseRef.current = ai.live.connect({
                     model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -217,7 +280,7 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
                         inputAudioTranscription: {},
                         outputAudioTranscription: {},
                         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
-                        systemInstruction: 'You are a calm, helpful, and concise emergency assistant for the HyperAPP community safety app. Your primary goal is to assess the user situation and, if necessary, dispatch help using the `sendSOSAlert` function. Ask direct questions to understand the situation. Only use the `sendSOSAlert` function if you believe there is a genuine emergency that requires intervention.',
+                        systemInstruction,
                         tools: [{ functionDeclarations: [sendSOSAlertFunctionDeclaration] }],
                     },
                 });

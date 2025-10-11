@@ -60,8 +60,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     // Handle the initial session check on app load
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      handleSession(session);
+    supabase.auth.getSession().then(response => {
+      const { data, error } = response;
+      if (error) {
+        console.error("Error fetching session on initial load:", error.message);
+        handleSession(null);
+      } else {
+        // data is { session: Session | null }
+        handleSession(data.session);
+      }
     });
 
     // Listen for any auth state changes (sign in, sign out)

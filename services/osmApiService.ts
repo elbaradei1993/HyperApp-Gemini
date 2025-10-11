@@ -26,10 +26,16 @@ export const getNearbyPlacesList = async (coords: LatLng, radiusMeters: number):
     out skel qt;
   `;
   
-  const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
+  const url = `https://overpass-api.de/api/interpreter`;
 
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: `data=${encodeURIComponent(overpassQuery)}`
+    });
     if (!response.ok) {
       throw new Error(`Overpass API responded with status ${response.status}`);
     }
