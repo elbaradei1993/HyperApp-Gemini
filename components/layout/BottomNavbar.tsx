@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { MapIcon, BellAlertIcon, ChartBarIcon, UserCircleIcon } from '../ui/Icons';
+import { MapIcon, BellAlertIcon, TicketIcon, UserCircleIcon } from '../ui/Icons';
 
 const BottomNavbar: React.FC = () => {
   const activeLink = 'text-brand-accent';
@@ -23,10 +23,10 @@ const BottomNavbar: React.FC = () => {
               <span className="text-xs">Pulse</span>
             </div>
           </NavLink>
-          <NavLink to="/trending" className={({ isActive }) => isActive ? activeLink : inactiveLink}>
+          <NavLink to="/events" className={({ isActive }) => isActive ? activeLink : inactiveLink}>
             <div className="flex flex-col items-center">
-              <ChartBarIcon className="w-6 h-6" />
-              <span className="text-xs">Trending</span>
+              <TicketIcon className="w-6 h-6" />
+              <span className="text-xs">Events</span>
             </div>
           </NavLink>
           <NavLink to="/profile" className={({ isActive }) => isActive ? activeLink : inactiveLink}>

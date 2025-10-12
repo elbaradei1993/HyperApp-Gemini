@@ -66,3 +66,26 @@ export interface TrendingVibe {
     vibe_count: number;
     latest_report: string;
 }
+
+// Reverted to Ticketmaster API data type
+export interface TicketmasterEvent {
+  id: string;
+  name: string;
+  url: string;
+  images: { url: string; }[];
+  dates: {
+    start: {
+      localDate: string;
+      localTime?: string;
+    };
+  };
+  _embedded?: {
+    venues: {
+      name: string;
+      city: { name: string; };
+      address: { line1: string; };
+    }[];
+  };
+  // Optional field for our AI-generated content
+  safetyVibe?: string;
+}

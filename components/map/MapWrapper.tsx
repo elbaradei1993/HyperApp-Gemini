@@ -201,12 +201,20 @@ const MapWrapper: React.FC = () => {
       const heatmapData = filteredVibes
           .map(v => [v.location.lat, v.location.lng, vibeIntensityMap[v.vibe_type]])
           .filter(v => v[2] > 0);
-          
+      
+      // DEFINITIVE FIX: Add a robust guard clause that checks both for data
+      // AND that the map container has a non-zero size. This prevents the
+      // "IndexSizeError" race condition crash permanently.
       if (heatmapData.length > 0) {
-          heatLayerRef.current = L.heatLayer(heatmapData, {
-              radius: 30, blur: 25, maxZoom: 17,
-              gradient: { 0.2: '#34d399', 0.4: '#3b82f6', 0.6: '#f59e0b', 0.8: '#ef4444', 1.0: '#b91c1c' }
-          }).addTo(map);
+          const mapSize = map.getSize();
+          if (mapSize.x > 0 && mapSize.y > 0) {
+              heatLayerRef.current = L.heatLayer(heatmapData, {
+                  radius: 30, blur: 25, maxZoom: 17,
+                  gradient: { 0.2: '#34d399', 0.4: '#3b82f6', 0.6: '#f59e0b', 0.8: '#ef4444', 1.0: '#b91c1c' }
+              }).addTo(map);
+          } else {
+              console.warn("Map container has zero size, skipping heatmap render to prevent crash.");
+          }
       }
     } else {
         const allMarkers = [];
@@ -414,4 +422,218 @@ const MapWrapper: React.FC = () => {
   );
 };
 
-export default MapWrapper;
+export default MapWrapper;--- START OF FILE supabase/schema.sql ---
+
+-- =================================================================
+-- HyperAPP - Supabase Schema
+-- Version: 1.5
+-- Description: Complete schema with PostGIS geography types, spatial
+--              indexes, RLS policies, and user profile triggers.
+--              FIX: Adds `get_all_public_data` RPC function to fix
+--              location data format issues (WKB vs GeoJSON) and
+--              improves performance by fetching all data in one call.
+-- Safe to run multiple times.
+-- =================================================================
+
+-- 1. Failsafe: Ensure PostGIS is enabled
+-- This script requires PostGIS. You MUST enable it in the Supabase
+-- dashboard under Database > Extensions before running this script.
+
+-- =================================================================
+-- Table: profiles (public profile linked to auth.users)
+-- =================================================================
+CREATE TABLE IF NOT EXISTS public.profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    username TEXT UNIQUE,
+    full_name TEXT,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- =================================================================
+-- Tables for App Data (vibes, sos, events, safe_zones)
+-- Uses GEOGRAPHY type for accurate location-based queries.
+-- =================================================================
+
+-- Vibes Table
+CREATE TABLE IF NOT EXISTS public.vibes (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    vibe_type TEXT NOT NULL CHECK (vibe_type IN ('safe', 'calm', 'noisy', 'lgbtqia_friendly', 'suspicious', 'dangerous')),
+    location GEOGRAPHY(Point, 4326)
+);
+
+-- SOS Table
+CREATE TABLE IF NOT EXISTS public.sos (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    details TEXT,
+    location GEOGRAPHY(Point, 4326),
+    resolved BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+-- Events Table
+CREATE TABLE IF NOT EXISTS public.events (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    title TEXT NOT NULL,
+    description TEXT,
+    event_time TIMESTAMPTZ,
+    location GEOGRAPHY(Point, 4326)
+);
+
+-- Safe Zones Table
+CREATE TABLE IF NOT EXISTS public.safe_zones (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    name TEXT NOT NULL,
+    radius_km REAL NOT NULL,
+    location GEOGRAPHY(Point, 4326)
+);
+
+-- =================================================================
+-- Indexes for Performance
+-- =================================================================
+CREATE INDEX IF NOT EXISTS vibes_location_idx ON public.vibes USING GIST (location);
+CREATE INDEX IF NOT EXISTS sos_location_idx ON public.sos USING GIST (location);
+CREATE INDEX IF NOT EXISTS events_location_idx ON public.events USING GIST (location);
+CREATE INDEX IF NOT EXISTS safe_zones_location_idx ON public.safe_zones USING GIST (location);
+
+-- =================================================================
+-- RPC Functions (for efficient and format-safe data fetching)
+-- =================================================================
+
+-- Function to get vibes within a radius
+DROP FUNCTION IF EXISTS public.get_nearby_vibes(double precision, double precision, double precision);
+CREATE OR REPLACE FUNCTION public.get_nearby_vibes(user_lat float, user_lng float, radius_km float)
+RETURNS SETOF vibes
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT v.*
+    FROM public.vibes v
+    WHERE ST_DWithin(
+        v.location,
+        ST_MakePoint(user_lng, user_lat)::geography,
+        radius_km * 1000 -- ST_DWithin expects radius in meters
+    );
+END;
+$$;
+
+
+-- NEW FUNCTION: Get all public data in one call with guaranteed GeoJSON format
+CREATE OR REPLACE FUNCTION public.get_all_public_data()
+RETURNS json
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN json_build_object(
+        'vibes', (
+            SELECT json_agg(t)
+            FROM (
+                SELECT id, user_id, created_at, vibe_type, ST_AsGeoJSON(location)::json AS location
+                FROM public.vibes
+            ) t
+        ),
+        'sos', (
+            SELECT json_agg(t)
+            FROM (
+                SELECT id, user_id, created_at, details, resolved, ST_AsGeoJSON(location)::json AS location
+                FROM public.sos
+                WHERE resolved = false
+            ) t
+        ),
+        'events', (
+             SELECT json_agg(t)
+             FROM (
+                SELECT id, user_id, created_at, title, description, event_time, ST_AsGeoJSON(location)::json AS location
+                FROM public.events
+             ) t
+        ),
+        'profiles', (
+            SELECT json_agg(t)
+            FROM (
+                SELECT id, username
+                FROM public.profiles
+            ) t
+        )
+    );
+END;
+$$;
+
+
+-- =================================================================
+-- Row Level Security (RLS) Policies
+-- =================================================================
+
+-- Enable RLS on all tables
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.vibes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.safe_zones ENABLE ROW LEVEL SECURITY;
+
+-- PROFILES Policies
+DROP POLICY IF EXISTS "Allow authenticated users to read any user profile" ON public.profiles;
+CREATE POLICY "Allow authenticated users to read any user profile" ON public.profiles FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Users can insert their own profile" ON public.profiles;
+CREATE POLICY "Users can insert their own profile" ON public.profiles FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
+CREATE POLICY "Users can update their own profile" ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+
+-- VIBES Policies
+DROP POLICY IF EXISTS "Allow anyone to read vibes" ON public.vibes;
+CREATE POLICY "Allow anyone to read vibes" ON public.vibes FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow authenticated users to insert vibes" ON public.vibes;
+CREATE POLICY "Allow authenticated users to insert vibes" ON public.vibes FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+
+-- SOS Policies
+DROP POLICY IF EXISTS "Allow anyone to read SOS alerts" ON public.sos;
+CREATE POLICY "Allow anyone to read SOS alerts" ON public.sos FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow authenticated users to insert SOS alerts" ON public.sos;
+CREATE POLICY "Allow authenticated users to insert SOS alerts" ON public.sos FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+
+-- EVENTS Policies
+DROP POLICY IF EXISTS "Allow anyone to read events" ON public.events;
+CREATE POLICY "Allow anyone to read events" ON public.events FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow authenticated users to insert events" ON public.events;
+CREATE POLICY "Allow authenticated users to insert events" ON public.events FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+
+-- SAFE ZONES Policies
+DROP POLICY IF EXISTS "Users can only view and manage their own safe zones" ON public.safe_zones;
+CREATE POLICY "Users can only view and manage their own safe zones" ON public.safe_zones FOR ALL TO authenticated
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+-- =================================================================
+-- Triggers for Automation
+-- =================================================================
+
+-- Function to create a user profile automatically on new user signup.
+CREATE OR REPLACE FUNCTION public.handle_new_user_profile()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+    INSERT INTO public.profiles (id, username)
+    VALUES (new.id, new.email);
+    RETURN new;
+END;
+$$;
+
+-- Trigger to execute the function after a new user is created in the auth schema.
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user_profile();
+
+-- =================================================================
+-- Grant USAGE on schema public to roles
+-- =================================================================
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;

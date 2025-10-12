@@ -5,7 +5,7 @@ import { AuthProvider, AuthContext } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
 import Home from './pages/Home';
 import Services from './pages/Services';
-import Trending from './pages/Trending';
+import Events from './pages/Events';
 import Profile from './pages/Account';
 import Login from './pages/Login';
 import Layout from './components/layout/Layout';
@@ -41,7 +41,7 @@ const AppRoutes: React.FC = () => {
                 <Route element={<ProtectedRoute />}>
                     <Route path="/" element={<Home />} />
                     <Route path="/services" element={<Services />} />
-                    <Route path="/trending" element={<Trending />} />
+                    <Route path="/events" element={<Events />} />
                     <Route path="/profile" element={<Profile />} />
                     <Route path="/activity" element={<Activity />} />
                 </Route>
