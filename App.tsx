@@ -1,23 +1,23 @@
-
 import React, { useContext } from 'react';
 import { HashRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, AuthContext } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
+import Layout from './components/layout/Layout';
 import Home from './pages/Home';
 import Services from './pages/Services';
 import Events from './pages/Events';
-import Profile from './pages/Account';
+import Account from './pages/Account';
 import Login from './pages/Login';
-import Layout from './components/layout/Layout';
+import CreateEvent from './pages/CreateEvent';
+import EditEvent from './pages/EditEvent';
 import Activity from './pages/Activity';
 
 const ProtectedRoute: React.FC = () => {
   const auth = useContext(AuthContext);
-
   if (auth?.loading) {
-    return <div className="flex items-center justify-center h-screen bg-brand-primary">Loading...</div>;
+    // A simple loading indicator to prevent flicker during auth check
+    return <div className="h-screen w-screen bg-brand-primary flex items-center justify-center text-white">Loading...</div>;
   }
-
   return auth?.session ? <Layout><Outlet /></Layout> : <Navigate to="/login" replace />;
 };
 
@@ -25,30 +25,23 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <DataProvider>
-        <AppRoutes />
+        <HashRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route element={<ProtectedRoute />}>
+              <Route path="/" element={<Home />} />
+              <Route path="/services" element={<Services />} />
+              <Route path="/events" element={<Events />} />
+              <Route path="/activity" element={<Activity />} />
+              <Route path="/create-event" element={<CreateEvent />} />
+              <Route path="/edit-event/:id" element={<EditEvent />} />
+              <Route path="/profile" element={<Account />} />
+            </Route>
+          </Routes>
+        </HashRouter>
       </DataProvider>
     </AuthProvider>
   );
 };
-
-const AppRoutes: React.FC = () => {
-    const auth = useContext(AuthContext);
-
-    return (
-        <HashRouter>
-            <Routes>
-                <Route path="/login" element={auth?.session ? <Navigate to="/" /> : <Login />} />
-                <Route element={<ProtectedRoute />}>
-                    <Route path="/" element={<Home />} />
-                    <Route path="/services" element={<Services />} />
-                    <Route path="/events" element={<Events />} />
-                    <Route path="/profile" element={<Profile />} />
-                    <Route path="/activity" element={<Activity />} />
-                </Route>
-            </Routes>
-        </HashRouter>
-    )
-}
-
 
 export default App;

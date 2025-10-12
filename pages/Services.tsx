@@ -98,16 +98,19 @@ const Services: React.FC = () => {
         }, {});
         
         const totalValidVibes = nearbyVibes.length;
+        // FIX: The value from Object.entries might be inferred as 'any', so we explicitly cast to Number to ensure type safety for the arithmetic operation.
         const breakdown = Object.fromEntries(
-// FIX: Cast `count` to Number to satisfy TypeScript's arithmetic operation type constraint.
             Object.entries(vibeCounts).map(([type, count]) => [type, (Number(count) / totalValidVibes) * 100])
         );
 
         const dominantVibeEntry = Object.entries(vibeCounts).sort((a, b) => b[1] - a[1])[0];
         
         setAreaVibeStats({
-// FIX: Cast `dominantVibeEntry[1]` to Number for arithmetic operation.
-            dominant: { type: dominantVibeEntry[0] as VibeType, percentage: (Number(dominantVibeEntry[1]) / totalValidVibes) * 100 },
+            dominant: {
+                type: dominantVibeEntry[0] as VibeType,
+                // FIX: Similarly, ensure the value from the sorted entry is treated as a Number.
+                percentage: (Number(dominantVibeEntry[1]) / totalValidVibes) * 100
+            },
             breakdown,
             total: totalValidVibes
         });

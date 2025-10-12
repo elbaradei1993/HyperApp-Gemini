@@ -55,7 +55,11 @@ const getVibeIcon = (vibeType: VibeType) => {
   });
 };
 const sosIcon = getVibeIcon(VibeType.Dangerous); // Reuse dangerous icon for visual consistency
-const eventIcon = getVibeIcon(VibeType.Calm); // Reuse calm icon
+const eventIcon = new L.Icon({ // Use a distinct 'gold' color for community events
+    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+});
 
 interface SummaryModalState {
     isOpen: boolean; isLoading: boolean; summary: string | null; error: string | null;
@@ -74,6 +78,7 @@ const MapWrapper: React.FC = () => {
   const reactRouterLocation = useLocation();
   const navigate = useNavigate();
   const isSettingZone = reactRouterLocation.state?.settingZone === true;
+  const isSettingEvent = reactRouterLocation.state?.settingEvent === true;
   const flyToLocation = reactRouterLocation.state?.flyToLocation;
 
 
@@ -252,7 +257,7 @@ const MapWrapper: React.FC = () => {
 
         events.forEach(e => {
             const marker = L.marker([e.location.lat, e.location.lng], { icon: eventIcon })
-                .bindPopup(`<strong>Event:</strong> ${e.title}<br><strong>When:</strong> ${new Date(e.event_time).toLocaleString()}`);
+                .bindPopup(`<strong>Community Event:</strong> ${e.title}<br><strong>When:</strong> ${new Date(e.event_time).toLocaleString()}<br><strong>By:</strong> ${e.profiles?.username || 'anonymous'}`);
             allMarkers.push(marker);
         });
         
@@ -272,6 +277,8 @@ const MapWrapper: React.FC = () => {
 
     if (isSettingZone) {
       map.on('click', (e: any) => navigate('/profile', { state: { newZoneLocation: e.latlng } }));
+    } else if (isSettingEvent) {
+      map.on('click', (e: any) => navigate('/create-event', { state: { newEventLocation: e.latlng } }));
     } else {
       map.on('contextmenu', async (e: any) => {
         setSummaryModalState({ isOpen: true, isLoading: true, summary: null, error: null });
@@ -306,7 +313,7 @@ const MapWrapper: React.FC = () => {
         }
       });
     }
-  }, [isSettingZone, navigate, vibes]);
+  }, [isSettingZone, isSettingEvent, navigate, vibes]);
 
   const handleFilterToggle = (vibeType: VibeType) => {
     setHeatmapFilters(prevFilters => {
@@ -337,9 +344,19 @@ const MapWrapper: React.FC = () => {
     });
   };
 
+  const currentMode = isSettingZone ? 'zone' : isSettingEvent ? 'event' : 'none';
+
   return (
     <div className="h-full w-full relative">
-      <div ref={mapContainerRef} className={`absolute inset-0 z-0 ${isSettingZone ? 'cursor-crosshair' : ''}`} />
+       {currentMode !== 'none' && (
+        <div className="absolute top-16 left-0 right-0 p-3 bg-brand-accent text-center z-[1001] animate-pulse">
+          {currentMode === 'zone' 
+            ? 'Click on the map to set the center of your new safe zone.'
+            : 'Click on the map to place your new community event.'
+          }
+        </div>
+      )}
+      <div ref={mapContainerRef} className={`absolute inset-0 z-0 ${currentMode !== 'none' ? 'cursor-crosshair' : ''}`} />
       <style>{`
         .css-icon-pulse {
             background-color: #4299e1;
@@ -364,12 +381,12 @@ const MapWrapper: React.FC = () => {
         }
       `}</style>
       {dataError && (
-        <div className="absolute top-0 left-0 right-0 z-[1000] p-4 bg-red-900/80 text-red-200 text-center text-sm backdrop-blur-sm">
+        <div className="absolute top-16 left-0 right-0 z-[1000] p-4 bg-red-900/80 text-red-200 text-center text-sm backdrop-blur-sm">
           <p className="font-bold">Map Data Error</p>
           <p>{dataError}</p>
         </div>
       )}
-      <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-3">
+      <div className="absolute top-20 right-4 z-[1000] flex flex-col gap-3">
         <button onClick={() => mapRef.current?.locate({ setView: true, maxZoom: 16 })} className="bg-white p-2 rounded-full shadow-lg">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24" fill="black" className="w-6 h-6"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path fillRule="evenodd" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-2.25a6.75 6.75 0 1 1 0-13.5 6.75 6.75 0 0 1 0 13.5Z" clipRule="evenodd" /></svg>
         </button>
@@ -379,7 +396,7 @@ const MapWrapper: React.FC = () => {
       </div>
 
       {isFilterPanelOpen && (
-        <div className="absolute top-24 right-4 z-[1000] bg-brand-secondary/90 backdrop-blur-sm p-3 rounded-lg shadow-lg max-w-xs w-52 animate-fade-in-down">
+        <div className="absolute top-36 right-4 z-[1000] bg-brand-secondary/90 backdrop-blur-sm p-3 rounded-lg shadow-lg max-w-xs w-52 animate-fade-in-down">
           <div className="flex justify-between items-center border-b border-gray-600 pb-2 mb-2">
             <p className="text-sm font-semibold text-white">Heatmap Options</p>
             <button onClick={() => setIsFilterPanelOpen(false)} className="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>

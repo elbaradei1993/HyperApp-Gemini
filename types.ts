@@ -1,4 +1,8 @@
 // types.ts
+export interface Location {
+  lat: number;
+  lng: number;
+}
 
 export enum VibeType {
   Safe = 'safe',
@@ -9,83 +13,74 @@ export enum VibeType {
   Dangerous = 'dangerous',
 }
 
-export interface Location {
-  lat: number;
-  lng: number;
-}
-
 export interface Profile {
   id: string;
+  updated_at: string;
   username: string;
   full_name: string;
-  updated_at?: string;
+  avatar_url: string;
 }
 
-export interface Vibe {
+export interface BaseRecord {
   id: number;
   created_at: string;
   user_id: string;
+  location: Location;
+  profiles?: {
+    username: string;
+  };
+}
+
+export interface Vibe extends BaseRecord {
   vibe_type: VibeType;
-  location: Location;
-  profiles?: { username: string }; // From map query
-  username?: string; // From trending query
 }
 
-export interface SOS {
-  id: number;
-  created_at: string;
-  user_id: string;
+export interface SOS extends BaseRecord {
   details: string;
-  location: Location;
-  resolved: boolean;
-  profiles?: { username: string };
+  resolved?: boolean;
 }
 
-export interface Event {
-  id: number;
-  created_at: string;
-  user_id: string;
+// Re-architected Event type for new features
+export interface Event extends BaseRecord {
   title: string;
   description: string;
   event_time: string;
-  location: Location;
-  profiles?: { username:string };
+  attendee_count?: number; // Added for the new attendance feature
+}
+
+export interface EventAttendee {
+    id: number;
+    event_id: number;
+    user_id: string;
+    created_at: string;
 }
 
 export interface SafeZone {
-    id: number;
-    created_at: string;
-    user_id: string;
-    name: string;
-    radius_km: number;
-    location: Location;
+  id: number;
+  user_id: string;
+  name: string;
+  location: Location;
+  radius_km: number;
 }
 
-export interface TrendingVibe {
-    vibe_type: VibeType;
-    vibe_count: number;
-    latest_report: string;
-}
-
-// Reverted to Ticketmaster API data type
+// From Ticketmaster API
 export interface TicketmasterEvent {
   id: string;
   name: string;
   url: string;
-  images: { url: string; }[];
   dates: {
     start: {
       localDate: string;
-      localTime?: string;
+      localTime?: string; // Time is optional
     };
   };
   _embedded?: {
     venues: {
       name: string;
-      city: { name: string; };
-      address: { line1: string; };
+      location?: {
+        latitude: string;
+        longitude: string;
+      };
     }[];
   };
-  // Optional field for our AI-generated content
-  safetyVibe?: string;
 }
