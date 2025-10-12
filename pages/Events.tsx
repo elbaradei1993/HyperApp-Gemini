@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useMemo, useContext } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { AuthContext } from '../contexts/AuthContext';
-import { supabase } from '../services/supabaseClient';
 import type { Event } from '../types';
-import { PlusCircleIcon, PencilSquareIcon, TrashIcon, UserGroupIcon } from '../components/ui/Icons';
+import { PlusCircleIcon, PencilSquareIcon, UserGroupIcon } from '../components/ui/Icons';
+import { useState } from 'react';
 
 interface EventCardProps {
     event: Event;
@@ -15,9 +15,7 @@ interface EventCardProps {
 }
 
 const EventCard: React.FC<EventCardProps> = ({ event, currentUserId, isAttending, onAttend, onLeave }) => {
-    const { deleteEvent } = useData();
     const [actionLoading, setActionLoading] = useState(false);
-    const [isDeleting, setIsDeleting] = useState(false);
     
     const handleAttend = async () => {
         setActionLoading(true);
@@ -29,14 +27,6 @@ const EventCard: React.FC<EventCardProps> = ({ event, currentUserId, isAttending
         setActionLoading(true);
         await onLeave(event.id);
         setActionLoading(false);
-    };
-
-    const handleDelete = async () => {
-        if (window.confirm("Are you sure you want to permanently delete this event?")) {
-            setIsDeleting(true);
-            await deleteEvent(event.id);
-            // No need to set isDeleting to false as the component will unmount
-        }
     };
     
     const isOwner = event.user_id === currentUserId;
@@ -56,7 +46,6 @@ const EventCard: React.FC<EventCardProps> = ({ event, currentUserId, isAttending
                         <Link to={`/edit-event/${event.id}`} className="p-2 text-gray-400 hover:text-white">
                             <PencilSquareIcon className="w-5 h-5" />
                         </Link>
-                        {/* Removed Delete Button */}
                     </div>
                 )}
             </div>
@@ -93,43 +82,23 @@ const EventCard: React.FC<EventCardProps> = ({ event, currentUserId, isAttending
 
 
 const Events: React.FC = () => {
-    const { events, loading, error, attendEvent, unattendEvent } = useData();
+    const { events, attendees, loading, error, attendEvent, unattendEvent } = useData();
     const { user } = useContext(AuthContext) || {};
-    const [userAttendees, setUserAttendees] = useState<Set<number>>(new Set());
     const navigate = useNavigate();
 
-    useEffect(() => {
-        if (!user) return;
-        const fetchUserAttendees = async () => {
-            const { data, error } = await supabase
-                .from('event_attendees')
-                .select('event_id')
-                .eq('user_id', user.id);
-            if (error) {
-                console.error("Failed to fetch user's event attendance:", error);
-            } else if (data) {
-                setUserAttendees(new Set(data.map(a => a.event_id)));
-            }
-        };
-        fetchUserAttendees();
-    }, [user, events]);
-
-    const handleAttend = async (eventId: number) => {
-        if (!user) return;
-        await attendEvent(eventId);
-        setUserAttendees(prev => new Set(prev).add(eventId));
-    };
-
-    const handleLeave = async (eventId: number) => {
-        await unattendEvent(eventId);
-        setUserAttendees(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(eventId);
-            return newSet;
-        });
-    };
+    // Derive attendance status directly from the DataContext for a single source of truth
+    const userAttendees = useMemo(() => {
+        if (!user || !attendees) return new Set<number>();
+        const userAttendingEventIds = attendees
+            .filter(a => a.user_id === user.id)
+            .map(a => a.event_id);
+        return new Set(userAttendingEventIds);
+    }, [user, attendees]);
     
     const now = new Date();
+    const twelveHoursAgo = new Date();
+    twelveHoursAgo.setHours(now.getHours() - 12);
+
     const upcomingEvents = events.filter(e => {
         const endDate = e.end_time ? new Date(e.end_time) : new Date(new Date(e.event_time).getTime() + 2 * 60 * 60 * 1000); // Default 2h duration
         return endDate >= now;
@@ -137,7 +106,8 @@ const Events: React.FC = () => {
     
     const pastEvents = events.filter(e => {
         const endDate = e.end_time ? new Date(e.end_time) : new Date(new Date(e.event_time).getTime() + 2 * 60 * 60 * 1000); // Default 2h duration
-        return endDate < now;
+        // Show events that ended in the last 12 hours
+        return endDate < now && endDate > twelveHoursAgo;
     }).sort((a,b) => new Date(b.event_time).getTime() - new Date(a.event_time).getTime());
 
 
@@ -168,8 +138,8 @@ const Events: React.FC = () => {
                                     event={event}
                                     currentUserId={user?.id || ''}
                                     isAttending={userAttendees.has(event.id)}
-                                    onAttend={handleAttend}
-                                    onLeave={handleLeave}
+                                    onAttend={attendEvent}
+                                    onLeave={unattendEvent}
                                 />
                             ))
                         ) : (
@@ -182,18 +152,18 @@ const Events: React.FC = () => {
                     <div className="space-y-4">
                          <h2 className="text-2xl font-semibold border-b border-gray-700 pb-2">Past Events</h2>
                          {pastEvents.length > 0 ? (
-                            pastEvents.slice(0, 10).map(event => ( // Show last 10 past events
+                            pastEvents.map(event => (
                                 <EventCard
                                     key={event.id}
                                     event={event}
                                     currentUserId={user?.id || ''}
                                     isAttending={userAttendees.has(event.id)}
-                                    onAttend={handleAttend}
-                                    onLeave={handleLeave}
+                                    onAttend={attendEvent}
+                                    onLeave={unattendEvent}
                                 />
                             ))
                         ) : (
-                            <p className="text-center py-4 text-gray-400">No past events found.</p>
+                            <p className="text-center py-4 text-gray-400">No events have concluded in the last 12 hours.</p>
                         )}
                     </div>
                 </>
