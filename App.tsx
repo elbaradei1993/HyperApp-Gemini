@@ -6,7 +6,6 @@ import { DataProvider } from './contexts/DataContext';
 import Layout from './components/layout/Layout';
 import Home from './pages/Home';
 import Login from './pages/Login';
-import Activity from './pages/Activity';
 import Trending from './pages/Trending';
 import Services from './pages/Services';
 import Events from './pages/Events';
@@ -32,7 +31,6 @@ const AppRoutes: React.FC = () => {
                     {/* FIX: The Layout component already contains an <Outlet> for rendering child routes and does not accept children. */}
                     <Route element={<Layout />}>
                         <Route path="/" element={<Home />} />
-                        <Route path="/activity" element={<Activity />} />
                         <Route path="/trending" element={<Trending />} />
                         <Route path="/services" element={<Services />} />
                         <Route path="/events" element={<Events />} />

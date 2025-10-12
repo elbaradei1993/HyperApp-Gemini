@@ -8,8 +8,8 @@ import { TrashIcon, PlusCircleIcon, LocationMarkerIcon, FireIcon, BellAlertIcon,
 import { useLocation as useReactRouterLocation } from 'react-router-dom';
 import { timeAgo } from '../utils/time';
 
-// --- Reusable Activity Card Components (similar to Activity.tsx) ---
-type UserActivityItem =
+// --- Reusable Activity Card Components (from former Activity.tsx) ---
+type ActivityItem =
   | (Vibe & { itemType: 'vibe' })
   | (SOS & { itemType: 'sos' })
   | (CommunityEvent & { itemType: 'event' });
@@ -19,33 +19,33 @@ const VIBE_DISPLAY_NAMES: Record<string, string> = {
     [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly', [VibeType.Suspicious]: 'Suspicious', [VibeType.Dangerous]: 'Dangerous',
 };
 
-const UserActivityCard: React.FC<{ item: UserActivityItem }> = ({ item }) => {
+const ActivityCard: React.FC<{ item: ActivityItem }> = ({ item }) => {
     let icon, title, details;
 
     switch (item.itemType) {
         case 'vibe':
-            icon = <FireIcon className="w-5 h-5 text-orange-400" />;
-            title = `You reported a "${VIBE_DISPLAY_NAMES[item.vibe_type] || 'Unknown'}" vibe`;
-            details = `Activity recorded`;
+            icon = <FireIcon className="w-6 h-6 text-orange-400" />;
+            title = `New Vibe: ${VIBE_DISPLAY_NAMES[item.vibe_type] || 'Unknown'}`;
+            details = `Reported by ${item.profiles?.username || 'anonymous'}`;
             break;
         case 'sos':
-            icon = <BellAlertIcon className="w-5 h-5 text-red-400" />;
-            title = `You sent an SOS Alert`;
-            details = item.details || `Activity recorded`;
+            icon = <BellAlertIcon className="w-6 h-6 text-red-400" />;
+            title = `SOS Alert`;
+            details = `${item.details ? `"${item.details}" - ` : ''}from ${item.profiles?.username || 'anonymous'}`;
             break;
         case 'event':
-            icon = <GlobeAltIcon className="w-5 h-5 text-blue-400" />;
-            title = `You created the event: "${item.title}"`;
-            details = new Date(item.event_time).toLocaleDateString();
+            icon = <GlobeAltIcon className="w-6 h-6 text-blue-400" />;
+            title = `New Event: ${item.title}`;
+            details = `Created by ${item.profiles?.username || 'anonymous'}`;
             break;
     }
 
     return (
-        <div className="bg-gray-700 p-3 rounded-lg flex items-start space-x-3">
-            <div className="flex-shrink-0 mt-1">{icon}</div>
+        <div className="bg-gray-800 p-4 rounded-lg flex items-start space-x-4">
+            <div className="flex-shrink-0">{icon}</div>
             <div className="flex-grow">
-                <p className="font-semibold text-white text-sm">{title}</p>
-                <p className="text-xs text-gray-400">{details}</p>
+                <p className="font-semibold text-white">{title}</p>
+                <p className="text-sm text-gray-400">{details}</p>
             </div>
             <div className="flex-shrink-0 text-xs text-gray-500">{timeAgo(item.created_at)}</div>
         </div>
@@ -55,7 +55,7 @@ const UserActivityCard: React.FC<{ item: UserActivityItem }> = ({ item }) => {
 
 const Account: React.FC = () => {
   const auth = useContext(AuthContext);
-  const { vibes, sos, events } = useData();
+  const { vibes, sos, events, loading: dataLoading, error: dataError } = useData();
   const navigate = useNavigate();
   const reactRouterLocation = useReactRouterLocation();
 
@@ -70,37 +70,16 @@ const Account: React.FC = () => {
   const [newZoneRadius, setNewZoneRadius] = useState(1);
   const [newZoneLocation, setNewZoneLocation] = useState<Location | null>(null);
 
-  // --- Personal Activity Feed Logic ---
-  const userActivityFeed = useMemo(() => {
-    if (!auth?.user) return [];
-    
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  // --- Global Community Activity Feed Logic ---
+  const sortedActivityFeed = useMemo(() => {
+        const combined: ActivityItem[] = [
+            ...vibes.map(v => ({ ...v, itemType: 'vibe' as const })),
+            ...sos.map(s => ({ ...s, itemType: 'sos' as const })),
+            ...events.map(e => ({ ...e, itemType: 'event' as const })),
+        ];
 
-    const userVibes: UserActivityItem[] = vibes
-        .filter(v => v.user_id === auth.user!.id)
-        .map(v => ({ ...v, itemType: 'vibe' as const }));
-
-    const userSos: UserActivityItem[] = sos
-        .filter(s => s.user_id === auth.user!.id)
-        .map(s => ({ ...s, itemType: 'sos' as const }));
-
-    const userEvents: UserActivityItem[] = events
-        .filter(e => e.user_id === auth.user!.id)
-        // Smart Archiving: Only show events that have ended in the last 30 days
-        .filter(e => {
-            const now = new Date();
-            const eventEndDate = e.end_time 
-                ? new Date(e.end_time) 
-                : new Date(new Date(e.event_time).getTime() + 2 * 60 * 60 * 1000); // Default 2h duration
-            return eventEndDate > thirtyDaysAgo;
-        })
-        .map(e => ({ ...e, itemType: 'event' as const }));
-
-    return [...userVibes, ...userSos, ...userEvents]
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-  }, [vibes, sos, events, auth?.user]);
+        return combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }, [vibes, sos, events]);
 
 
   useEffect(() => {
@@ -229,19 +208,24 @@ const Account: React.FC = () => {
   return (
     <div className="p-4 space-y-8">
       <div>
-        <h1 className="text-3xl font-bold">Account</h1>
+        <h1 className="text-3_xl font-bold">Account</h1>
         <p className="text-gray-400">Manage your profile and settings.</p>
       </div>
       
        <div className="bg-brand-secondary p-4 rounded-lg space-y-4">
-        <h2 className="text-xl font-semibold">My Activity</h2>
-        <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-            {userActivityFeed.length > 0 ? (
-                userActivityFeed.map(item => (
-                    <UserActivityCard key={`${item.itemType}-${item.id}`} item={item} />
-                ))
-            ) : (
-                <p className="text-gray-500 text-sm text-center py-4">You haven't made any contributions yet.</p>
+        <h2 className="text-xl font-semibold">Community Activity Feed</h2>
+        <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
+            {dataLoading ? <p className="text-center py-8 text-gray-400">Loading activity...</p>
+            : dataError ? <p className="bg-red-500/20 text-red-300 p-3 rounded-md text-center">{dataError}</p>
+            : sortedActivityFeed.length === 0 ? (
+                <p className="text-center py-8 text-gray-400">No recent activity in the community.</p>
+            )
+            : (
+                <div className="space-y-4">
+                    {sortedActivityFeed.map(item => (
+                        <ActivityCard key={`${item.itemType}-${item.id}`} item={item} />
+                    ))}
+                </div>
             )}
         </div>
       </div>
