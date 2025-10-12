@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useContext } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { AuthContext } from '../contexts/AuthContext';
@@ -32,41 +30,39 @@ interface SafetyBriefing {
 }
 
 const Services: React.FC = () => {
-  const [address, setAddress] = useState<string | null>(null);
+  const { vibes, addLocalVibe, loading: dataLoading, error: dataError } = useData();
+  const auth = useContext(AuthContext);
+
   const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
+  const [address, setAddress] = useState<string | null>(null);
   const [areaVibeStats, setAreaVibeStats] = useState<AreaVibeStats | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<string[] | null>(null);
   const [safetyAdvice, setSafetyAdvice] = useState<string | null>(null);
   const [pulseLoading, setPulseLoading] = useState(true);
   const [adviceLoading, setAdviceLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
-  const auth = useContext(AuthContext);
-  const { vibes, loading: dataLoading, error: dataError } = useData();
 
-  // New state for Safety Briefing
+  // Briefing state
   const [briefingLocation, setBriefingLocation] = useState('');
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [briefingResult, setBriefingResult] = useState<SafetyBriefing | null>(null);
   const [briefingError, setBriefingError] = useState<string | null>(null);
 
-  // New state for Live Assistant
+  // Live Assistant state
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   
-  // Effect 1: Get user's current location and fetch address/places
+  // Effect 1: Get user's location and address on initial load.
   useEffect(() => {
-    setPulseLoading(true);
-    setError(null);
-    
     navigator.geolocation.getCurrentPosition(async (position) => {
       const { latitude, longitude } = position.coords;
-      const location = { lat: latitude, lng: longitude };
-      setCurrentLocation(location);
+      const userLocation = { lat: latitude, lng: longitude };
+      setCurrentLocation(userLocation);
 
+      // Fetch address and nearby places concurrently
       const [geoResponse, places] = await Promise.all([
           fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`),
-          getNearbyPlacesList(location, 500)
+          getNearbyPlacesList(userLocation, 500)
       ]);
 
       if (geoResponse.ok) {
@@ -79,53 +75,45 @@ const Services: React.FC = () => {
       }
       setNearbyPlaces(places);
     }, (geoError) => {
-      setError("Could not get your location. Please enable location services.");
+      console.error("Geolocation error:", geoError);
+      setAddress("Could not get location. Please enable location services.");
       setPulseLoading(false);
     });
   }, []);
 
-  // Effect 2: Calculate vibe stats whenever global vibe data or location changes
+  // Effect 2: Calculate local vibe stats whenever the global vibe list or user's location changes.
   useEffect(() => {
-    if (dataLoading || !currentLocation) return;
-    if (dataError) {
-        setError(dataError);
-        setPulseLoading(false);
-        return;
-    }
-    
+    if (!currentLocation || dataLoading) return;
+
     const nearbyVibes = vibes.filter(vibe => 
-        vibe.location && haversineDistance(currentLocation, vibe.location) <= 1
+        haversineDistance(currentLocation, vibe.location) <= 1
     );
-    
+
     if (nearbyVibes.length === 0) {
         setAreaVibeStats({ dominant: null, breakdown: {}, total: 0 });
-        setPulseLoading(false);
-        return;
+    } else {
+        const vibeCounts = nearbyVibes.reduce<Record<string, number>>((acc, vibe) => {
+            acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
+            return acc;
+        }, {});
+        
+        const totalValidVibes = nearbyVibes.length;
+        const breakdown = Object.fromEntries(
+// FIX: Cast `count` to Number to satisfy TypeScript's arithmetic operation type constraint.
+            Object.entries(vibeCounts).map(([type, count]) => [type, (Number(count) / totalValidVibes) * 100])
+        );
+
+        const dominantVibeEntry = Object.entries(vibeCounts).sort((a, b) => b[1] - a[1])[0];
+        
+        setAreaVibeStats({
+// FIX: Cast `dominantVibeEntry[1]` to Number for arithmetic operation.
+            dominant: { type: dominantVibeEntry[0] as VibeType, percentage: (Number(dominantVibeEntry[1]) / totalValidVibes) * 100 },
+            breakdown,
+            total: totalValidVibes
+        });
     }
-
-    // Fix: Explicitly type the initial value for the reduce function to ensure `vibeCounts`
-    // has the correct type (`Record<string, number>`). This allows TypeScript to correctly
-    // infer types for values used in later arithmetic operations, resolving the errors.
-    const vibeCounts = nearbyVibes.reduce((acc, vibe) => {
-        acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
-        return acc;
-    }, {} as Record<string, number>);
-    
-    const totalVibes = nearbyVibes.length;
-    const breakdown = Object.fromEntries(
-        Object.entries(vibeCounts).map(([type, count]) => [type, (count / totalVibes) * 100])
-    );
-
-    const dominantVibeEntry = Object.entries(vibeCounts).sort((a, b) => b[1] - a[1])[0];
-    
-    setAreaVibeStats({
-        dominant: { type: dominantVibeEntry[0] as VibeType, percentage: (dominantVibeEntry[1] / totalVibes) * 100 },
-        breakdown,
-        total: totalVibes
-    });
     setPulseLoading(false);
-
-  }, [vibes, currentLocation, dataLoading, dataError]);
+  }, [vibes, currentLocation, dataLoading]);
 
 
   // Effect 3: Generate safety advice when vibe stats and places become available.
@@ -140,11 +128,7 @@ const Services: React.FC = () => {
       }
       
       let apiKey: string | undefined;
-      try {
-        apiKey = process.env.API_KEY;
-      } catch (e) {
-        apiKey = undefined;
-      }
+      try { apiKey = process.env.API_KEY; } catch (e) { apiKey = undefined; }
 
       if (!apiKey) {
         setSafetyAdvice("Smart advice is unavailable: API key not configured.");
@@ -153,7 +137,7 @@ const Services: React.FC = () => {
       }
 
       setAdviceLoading(true);
-      setSafetyAdvice(''); // Clear previous advice before streaming
+      setSafetyAdvice(''); // Clear previous advice
       try {
         const ai = new GoogleGenAI({ apiKey });
 
@@ -166,7 +150,7 @@ const Services: React.FC = () => {
         if (areaVibeStats.total > 0 && areaVibeStats.dominant) {
             const breakdownText = Object.entries(areaVibeStats.breakdown)
                 .filter(([, percentage]) => (percentage as number) > 0)
-                .map(([type, percentage]) => `${(percentage as number).toFixed(0)}% ${VIBE_CONFIG[type].displayName}`)
+                .map(([type, percentage]) => `${(percentage as number).toFixed(0)}% ${VIBE_CONFIG[type]?.displayName || type}`)
                 .join(', ');
             context += `- Community Vibe Breakdown: ${breakdownText}\n`;
         } else {
@@ -174,35 +158,18 @@ const Services: React.FC = () => {
         }
     
         if (nearbyPlaces.length > 0) {
-            context += `- Nearby Points of Interest: ${nearbyPlaces.slice(0, 5).join(', ')}\n`; // Limit to 5 for brevity
+            context += `- Nearby Points of Interest: ${nearbyPlaces.slice(0, 5).join(', ')}\n`;
         } else {
             context += `- Nearby Points of Interest: None detected.\n`;
         }
         context += `--- END CONTEXT DATA ---\n\n`;
     
-        const prompt = context + `You are a helpful community safety assistant. Your task is to provide a "Vibe Explanation" based on the new vibe categories:
-- Safe: General feeling of security.
-- Calm: Peaceful and quiet, low activity.
-- Noisy: High level of sound, can be from traffic, construction, or crowds. Neutral to negative.
-- LGBTQIA+ Friendly: A welcoming and inclusive atmosphere for LGBTQIA+ individuals.
-- Suspicious: Something feels off or unsettling, but no immediate danger is perceived.
-- Dangerous: A clear and present sense of threat or hostile activity.
-
-Based on this, do the following:
-1. First, in one friendly sentence, EXPLAIN the likely reason for the current community vibe using the context data provided. Be insightful.
-2. Then, on a new line, provide a single, practical, and actionable safety tip that is relevant to your explanation. Start this tip with a verb.
-
-Example:
-The area feels welcoming and calm, likely due to the nearby park and several cafes creating a relaxed daytime atmosphere.
-
-Take a moment to enjoy a walk, but always be aware of your surroundings.`;
+        const prompt = context + `You are a helpful community safety assistant. Your task is to provide a "Vibe Explanation" based on the new vibe categories. Based on this, do the following: 1. First, in one friendly sentence, EXPLAIN the likely reason for the current community vibe using the context data provided. Be insightful. 2. Then, on a new line, provide a single, practical, and actionable safety tip that is relevant to your explanation. Start this tip with a verb.`;
         
         const responseStream = await ai.models.generateContentStream({
           model: 'gemini-2.5-flash',
           contents: prompt,
-          config: {
-            thinkingConfig: { thinkingBudget: 0 },
-          },
+          config: { thinkingConfig: { thinkingBudget: 0 } },
         });
         
         for await (const chunk of responseStream) {
@@ -226,19 +193,40 @@ Take a moment to enjoy a walk, but always be aware of your surroundings.`;
   };
   
   const reportVibe = (vibeType: VibeType) => {
+    if (!auth?.user) {
+        showToast("You must be logged in to report a vibe.");
+        return;
+    }
     setActionLoading(true);
     navigator.geolocation.getCurrentPosition(async (position) => {
-      // PostGIS requires POINT(lng lat) format
-      const locationPayload = `POINT(${position.coords.longitude} ${position.coords.latitude})`;
-      const { error } = await supabase.from('vibes').insert({ 
-            user_id: auth?.user?.id, 
+      const { latitude, longitude } = position.coords;
+      const freshLocation: Location = { lat: latitude, lng: longitude };
+      // FIX: Use SRID=4326;POINT(lng lat) format for PostGIS geography type.
+      // This is the correct format to ensure the database can parse and store the location.
+      const locationPayload = `SRID=4326;POINT(${longitude} ${latitude})`;
+      
+      const { data, error } = await supabase.from('vibes').insert({ 
+            user_id: auth.user!.id, 
             vibe_type: vibeType, 
-            location: locationPayload
-        });
+            location: locationPayload,
+        }).select().single();
+
       if (error) {
           showToast(`Error: ${error.message}`);
-      } else {
+      } else if (data) {
           showToast(`Vibe '${VIBE_CONFIG[vibeType]?.displayName || vibeType}' reported successfully!`);
+          
+          // Optimistic UI Update
+          const newVibe: Vibe = {
+              id: data.id,
+              created_at: data.created_at,
+              user_id: auth.user!.id,
+              vibe_type: vibeType,
+              location: freshLocation,
+              profiles: { username: 'You' } // Use a placeholder until real-time update arrives
+          };
+          addLocalVibe(newVibe);
+          setCurrentLocation(freshLocation); // Recalculate stats based on the new report's location
       }
       setActionLoading(false);
     }, () => { showToast('Error: Unable to get location.'); setActionLoading(false); });
@@ -266,9 +254,7 @@ Take a moment to enjoy a walk, but always be aware of your surroundings.`;
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: {
-                tools: [{ googleSearch: {} }],
-            },
+            config: { tools: [{ googleSearch: {} }] },
         });
 
         const summary = response.text;
@@ -276,18 +262,15 @@ Take a moment to enjoy a walk, but always be aware of your surroundings.`;
         const sources = groundingChunks
             .map((chunk: any) => chunk.web)
             .filter((web: any) => web?.uri && web?.title)
-            .reduce((acc: any[], current: any) => { // Deduplicate sources by URI
-                if (!acc.find(item => item.uri === current.uri)) {
-                    acc.push(current);
-                }
+            .reduce((acc: any[], current: any) => { // Deduplicate sources
+                if (!acc.find(item => item.uri === current.uri)) acc.push(current);
                 return acc;
             }, []);
         
         setBriefingResult({ summary, sources });
 
-    // Fix: Correctly handle errors in the catch block to prevent crashes and update UI state.
-    } catch (err: any) {
-        setBriefingError(err.message || "Failed to generate safety briefing.");
+    } catch (error: any) {
+        setBriefingError(error.message || "Failed to generate safety briefing.");
     } finally {
         setBriefingLoading(false);
     }
@@ -298,8 +281,8 @@ Take a moment to enjoy a walk, but always be aware of your surroundings.`;
   return (
     <div className="p-4 space-y-6">
       <h1 className="text-3xl font-bold">Community Pulse</h1>
-      {toast && <div className="bg-brand-accent p-3 rounded-md fixed top-4 left-4 right-4 z-[100] shadow-lg animate-fade-in-down">{toast}</div>}
-      {error && <div className="bg-red-500/20 text-red-300 p-3 rounded-md">{error}</div>}
+      {toast && <div className="bg-brand-accent p-3 rounded-md fixed top-20 left-4 right-4 z-[100] shadow-lg animate-fade-in-down">{toast}</div>}
+      {dataError && <div className="bg-red-500/20 text-red-300 p-3 rounded-md">{dataError}</div>}
 
       <div className="bg-brand-secondary p-4 rounded-lg space-y-4">
         <div className="flex items-center space-x-2 text-gray-400">
@@ -322,7 +305,7 @@ Take a moment to enjoy a walk, but always be aware of your surroundings.`;
               <div className="flex h-2 rounded-full overflow-hidden bg-gray-700 mt-2">
                  {Object.entries(areaVibeStats.breakdown).map(([type, percentage]) => {
                     const config = VIBE_CONFIG[type];
-                    if (!config) return null; // Should not happen due to filtering
+                    if (!config || (percentage as number) <= 0) return null;
                     return <div
                       key={type}
                       className={config.barClass}

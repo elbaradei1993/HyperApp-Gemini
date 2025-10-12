@@ -1,3 +1,4 @@
+
 // services/osmApiService.ts
 
 interface LatLng {
@@ -5,23 +6,24 @@ interface LatLng {
   lng: number;
 }
 
+const MAX_RETRIES = 3;
+const INITIAL_DELAY_MS = 1000;
+
 /**
  * Fetches a list of notable nearby places (amenities, etc.) from the Overpass API.
  * This is used to provide contextual information to the AI.
+ * Implements a retry mechanism with exponential backoff to handle transient server errors.
  * @param coords The latitude and longitude to search around.
  * @param radiusMeters The search radius.
  * @returns A promise that resolves to an array of unique place names.
  */
 export const getNearbyPlacesList = async (coords: LatLng, radiusMeters: number): Promise<string[]> => {
-  // This query looks for common amenities that might influence a neighborhood's vibe.
-  // The timeout is set to 60 seconds; the public Overpass API can be slow under load,
-  // and a higher timeout makes our request more likely to succeed.
+  // Increased timeout to 120s and broadened the query to be more efficient
+  // for the public API, reducing the chance of a server-side timeout.
   const overpassQuery = `
-    [out:json][timeout:60];
+    [out:json][timeout:120];
     (
-      node["amenity"~"bar|cafe|restaurant|police|hospital|bus_station|train_station|park|nightclub"](around:${radiusMeters},${coords.lat},${coords.lng});
-      way["amenity"~"bar|cafe|restaurant|police|hospital|bus_station|train_station|park|nightclub"](around:${radiusMeters},${coords.lat},${coords.lng});
-      relation["amenity"~"bar|cafe|restaurant|police|hospital|bus_station|train_station|park|nightclub"](around:${radiusMeters},${coords.lat},${coords.lng});
+      nwr(around:${radiusMeters},${coords.lat},${coords.lng})[~"^(amenity|shop|tourism)$"~"."];
     );
     out body;
     >;
@@ -30,33 +32,51 @@ export const getNearbyPlacesList = async (coords: LatLng, radiusMeters: number):
   
   const url = `https://overpass-api.de/api/interpreter`;
 
-  try {
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: `data=${encodeURIComponent(overpassQuery)}`
-    });
-    if (!response.ok) {
-      throw new Error(`Overpass API responded with status ${response.status}`);
-    }
-    const data = await response.json();
-    
-    // Extract unique names of places from the response tags.
-    const placeNames = new Set<string>();
-    if (data.elements) {
-      (data.elements as any[]).forEach(element => {
-        if (element.tags && element.tags.name) {
-          placeNames.add(element.tags.name);
-        }
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: `data=${encodeURIComponent(overpassQuery)}`
       });
-    }
-    
-    return Array.from(placeNames);
 
-  } catch (error: any) {
-    console.error("Failed to fetch from Overpass API:", error.message);
-    return []; // Return an empty array on failure to prevent crashes.
+      // Specifically check for Gateway Timeout to retry
+      if (response.status === 504 && attempt < MAX_RETRIES) {
+          const delay = INITIAL_DELAY_MS * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+          console.warn(`Overpass API timeout. Retrying in ${delay}ms... (Attempt ${attempt}/${MAX_RETRIES})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue; // Move to the next attempt
+      }
+
+      if (!response.ok) {
+        throw new Error(`Overpass API responded with status ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      const placeNames = new Set<string>();
+      if (data.elements) {
+        (data.elements as any[]).forEach(element => {
+          if (element.tags && element.tags.name) {
+            placeNames.add(element.tags.name);
+          }
+        });
+      }
+      
+      return Array.from(placeNames); // Success, exit the function
+
+    } catch (error: any) {
+      console.error(`Failed to fetch from Overpass API (Attempt ${attempt}/${MAX_RETRIES}):`, error.message);
+      if (attempt === MAX_RETRIES) {
+          return []; // All retries failed, return empty array
+      }
+      // Wait before the next retry for other errors (e.g., network issues)
+      const delay = INITIAL_DELAY_MS * Math.pow(2, attempt - 1);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
+
+  return []; // Should not be reached, but fallback to empty array
 };

@@ -9,10 +9,15 @@ import { VibeType } from '../types';
 import { TrashIcon, LocationMarkerIcon } from '../components/ui/Icons';
 
 // Helper to convert Supabase GeoJSON point to our LatLng format
-// Supabase returns: { type: 'Point', coordinates: [lng, lat] }
+// Made robust to handle both new (GeoJSON) and old ({lat,lng}) formats.
 const parseLocation = (loc: any): Location | null => {
     if (loc && loc.coordinates && loc.coordinates.length === 2) {
+        // New GeoJSON format from PostGIS: { type: 'Point', coordinates: [lng, lat] }
         return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
+    }
+    if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
+        // Old format from JSONB: { lat: number, lng: number }
+        return loc;
     }
     return null;
 }
@@ -162,8 +167,8 @@ const Profile: React.FC = () => {
       alert("Please provide a name, radius, and select a location on the map.");
       return;
     }
-    // PostGIS requires POINT(lng lat) format
-    const locationPayload = `POINT(${newZoneLocation.lng} ${newZoneLocation.lat})`;
+    // FIX: Use SRID=4326;POINT(lng lat) format for PostGIS geography type.
+    const locationPayload = `SRID=4326;POINT(${newZoneLocation.lng} ${newZoneLocation.lat})`;
     const { error } = await supabase.from('safe_zones').insert({
         user_id: auth.user.id,
         name: newZoneName,

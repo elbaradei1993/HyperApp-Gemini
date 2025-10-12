@@ -1,15 +1,36 @@
 import React, { createContext, useState, useEffect, ReactNode, useContext } from 'react';
 import { supabase } from '../services/supabaseClient';
+import { AuthContext } from './AuthContext';
 import type { Vibe, SOS, Event, Location, Profile } from '../types';
 import { VibeType } from '../types';
 
-// Helper to convert Supabase GeoJSON point to our LatLng format
+// Helper to convert Supabase GeoJSON point to our LatLng format.
+// This is now simpler as the RPC call guarantees the GeoJSON format.
 const parseLocation = (loc: any): Location | null => {
-    if (loc && loc.coordinates && loc.coordinates.length === 2) {
+    if (loc && loc.type === 'Point' && loc.coordinates && loc.coordinates.length === 2) {
+        // Standard GeoJSON format: { type: 'Point', coordinates: [lng, lat] }
         return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
     }
+    // Backward compatibility for old format from JSONB: { lat: number, lng: number }
+    if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
+        return loc;
+    }
+    console.warn("Could not parse location:", loc);
     return null;
 }
+
+// Helper to map old vibe types to new ones for backward compatibility
+const mapLegacyVibeType = (vibeType: string): VibeType => {
+    switch (vibeType) {
+        case 'Uncertain':
+        case 'Tense':
+            return VibeType.Suspicious;
+        case 'Unsafe':
+            return VibeType.Dangerous;
+        default:
+            return vibeType as VibeType;
+    }
+};
 
 const validVibeTypes = new Set(Object.values(VibeType));
 
@@ -19,121 +40,97 @@ interface DataContextType {
   events: Event[];
   loading: boolean;
   error: string | null;
+  addLocalVibe: (vibe: Vibe) => void;
 }
 
 export const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const auth = useContext(AuthContext);
   const [vibes, setVibes] = useState<Vibe[]>([]);
   const [sos, setSos] = useState<SOS[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // A cache to hold user profile info (id -> username) for enriching real-time data.
   const [profileMap, setProfileMap] = useState<Map<string, { username: string }>>(new Map());
 
-  useEffect(() => {
-    const fetchAllData = async () => {
-      setError(null);
-      
-      const vibesPromise = supabase.from('vibes').select('*, profiles(username)');
-      const sosPromise = supabase.from('sos').select('*, profiles(username)').eq('resolved', false);
-      const eventsPromise = supabase.from('events').select('*, profiles(username)');
-      
-      const [vibesRes, sosRes, eventsRes] = await Promise.all([vibesPromise, sosPromise, eventsPromise]);
-      
-      const responses = { vibes: vibesRes, sos: sosRes, events: eventsRes };
-      let hadError = false;
-      for (const [key, res] of Object.entries(responses)) {
-        if (res.error) {
-            console.error(`Error fetching ${key}:`, res.error);
-            setError(`Failed to load map data. An "internal error" often means a database setup issue. Please verify your table schemas and Row Level Security policies in Supabase. (Failed on: ${key})`);
-            hadError = true;
-        }
+  const addLocalVibe = (vibe: Vibe) => {
+    setVibes(currentVibes => {
+      if (currentVibes.some(v => v.id === vibe.id)) {
+        return currentVibes;
       }
-      if (hadError) {
-          setLoading(false);
-          return;
+      return [vibe, ...currentVibes];
+    });
+  };
+  
+  // Re-architected to use a single, efficient RPC call for atomic and format-guaranteed data loading.
+  const fetchAllData = async () => {
+    setError(null);
+    setLoading(true);
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc('get_all_public_data');
+      
+      if (rpcError) {
+        throw new Error(`Failed to load community data: ${rpcError.message}. Check DB schema and RLS policies.`);
+      }
+
+      if (!data) {
+        throw new Error("No data returned from the server. The RPC function might be misconfigured.");
       }
 
       const newProfileMap = new Map<string, { username: string }>();
-      const processAndCacheProfiles = (item: any) => {
-        if (item.profiles && item.user_id) {
-          newProfileMap.set(item.user_id, item.profiles);
-        }
-        return item;
-      };
-
-      const allVibes = (vibesRes.data || []).map(processAndCacheProfiles);
-      const allSos = (sosRes.data || []).map(processAndCacheProfiles);
-      const allEvents = (eventsRes.data || []).map(processAndCacheProfiles);
-      
+      (data.profiles || []).forEach((profile: Profile) => {
+          if (profile.id && profile.username) {
+              newProfileMap.set(profile.id, { username: profile.username });
+          }
+      });
       setProfileMap(newProfileMap);
 
-      setVibes(allVibes.map(v => ({ ...v, location: parseLocation(v.location) })).filter(v => v.location && validVibeTypes.has(v.vibe_type)) as Vibe[]);
-      setSos(allSos.map(s => ({ ...s, location: parseLocation(s.location) })).filter(s => s.location) as SOS[]);
-      setEvents(allEvents.map(e => ({ ...e, location: parseLocation(e.location) })).filter(e => e.location) as Event[]);
+      const enrichedVibes = (data.vibes || []).map((v: any) => {
+          const location = parseLocation(v.location);
+          if (!location) return null;
+          const mappedVibeType = mapLegacyVibeType(v.vibe_type);
+          if (!validVibeTypes.has(mappedVibeType)) return null;
+          return { ...v, location, vibe_type: mappedVibeType, profiles: newProfileMap.get(v.user_id) } as Vibe;
+      }).filter(Boolean) as Vibe[];
+
+      const enrichedSos = (data.sos || []).map((s: any) => {
+          const location = parseLocation(s.location);
+          if (!location) return null;
+          return { ...s, location, profiles: newProfileMap.get(s.user_id) } as SOS;
+      }).filter(Boolean) as SOS[];
+
+      const enrichedEvents = (data.events || []).map((e: any) => {
+          const location = parseLocation(e.location);
+          if (!location) return null;
+          return { ...e, location, profiles: newProfileMap.get(e.user_id) } as Event;
+      }).filter(Boolean) as Event[];
       
-      setLoading(false);
-    };
+      setVibes(enrichedVibes);
+      setSos(enrichedSos);
+      setEvents(enrichedEvents);
+
+    } catch (err: any) {
+        console.error("Data fetching error:", err);
+        setError(err.message);
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (auth?.loading) return;
 
     fetchAllData();
 
     const handleRealtimeUpdate = (payload: any) => {
-        const { eventType, table, new: newRecord, old: oldRecord } = payload;
-        
-        const updateState = <T extends { id: number | string, user_id: string }>(
-            setter: React.Dispatch<React.SetStateAction<T[]>>,
-            parser: (record: any) => T | null
-        ) => {
-            const id = newRecord?.id || oldRecord?.id;
-            if (!id) return;
-            
-            // Enrich the incoming record with cached profile data before parsing
-            const profile = profileMap.get(newRecord.user_id);
-            const enrichedRecord = { ...newRecord, profiles: profile };
-
-            setter(currentData => {
-                if (eventType === 'INSERT') {
-                    const parsed = parser(enrichedRecord);
-                    if (!parsed || currentData.some(item => item.id === parsed.id)) return currentData;
-                    return [...currentData, parsed];
-                }
-                if (eventType === 'UPDATE') {
-                    const parsed = parser(enrichedRecord);
-                    if (!parsed) return currentData;
-                    return currentData.map(item => (item.id === parsed.id ? parsed : item));
-                }
-                if (eventType === 'DELETE') {
-                    return currentData.filter(item => item.id !== id);
-                }
-                return currentData;
-            });
-        };
-        
-        if (table === 'vibes') {
-            updateState<Vibe>(setVibes, (record) => {
-                const parsed = { ...record, location: parseLocation(record.location) } as Vibe;
-                return parsed.location && validVibeTypes.has(parsed.vibe_type) ? parsed : null;
-            });
-        } else if (table === 'sos') {
-            updateState<SOS>(setSos, (record) => {
-                const parsed = { ...record, location: parseLocation(record.location) } as SOS;
-                if (eventType === 'UPDATE' && parsed.resolved) {
-                    setSos(current => current.filter(s => s.id !== parsed.id));
-                    return null;
-                }
-                return parsed.location ? parsed : null;
-            });
-        } else if (table === 'events') {
-            updateState<Event>(setEvents, (record) => {
-                const parsed = { ...record, location: parseLocation(record.location) } as Event;
-                return parsed.location ? parsed : null;
-            });
-        }
+        // For any real-time change, the safest and most robust approach is to refetch all data.
+        // This prevents complex state inconsistencies and race conditions that cause crashes.
+        console.log('Real-time event received, refetching all data for consistency:', payload.eventType, payload.table);
+        fetchAllData();
     };
-
 
     const subscription = supabase.channel('public-data-changes')
       .on('postgres_changes', { event: '*', schema: 'public' }, handleRealtimeUpdate)
@@ -142,7 +139,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, []);
+  }, [auth?.session, auth?.loading]);
 
   const value = {
     vibes,
@@ -150,12 +147,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     events,
     loading,
     error,
+    addLocalVibe,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };
 
-// Custom hook for easy consumption of the context
 export const useData = () => {
     const context = useContext(DataContext);
     if (context === undefined) {

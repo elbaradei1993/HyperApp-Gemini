@@ -16,20 +16,12 @@ interface TranscriptionEntry {
     text: string;
 }
 
-// FIX: Define a local interface for the LiveSession to avoid importing a non-exported type.
+// Define a local interface for the LiveSession to avoid importing a non-exported type.
 // This provides type safety for the session object's methods used in this component.
 interface LiveSession {
     sendRealtimeInput(input: { media: Blob }): void;
     sendToolResponse(response: { functionResponses: { id: string; name: string; response: { result: string; }; } }): void;
     close(): void;
-}
-
-// Helper to convert Supabase GeoJSON point to our LatLng format
-const parseLocation = (loc: any): Location | null => {
-    if (loc && loc.coordinates && loc.coordinates.length === 2) {
-        return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
-    }
-    return null;
 }
 
 const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose }) => {
@@ -38,8 +30,6 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
     const auth = useContext(AuthContext);
 
     const sessionPromiseRef = useRef<Promise<LiveSession> | null>(null);
-    // FIX: Initialize useRef with `null` to satisfy older TypeScript/React type definitions
-    // that may not support the no-argument version of useRef.
     const inputAudioContextRef = useRef<AudioContext | null>(null);
     const outputAudioContextRef = useRef<AudioContext | null>(null);
     const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
@@ -52,31 +42,19 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
     const currentInputTranscriptionRef = useRef('');
     const currentOutputTranscriptionRef = useRef('');
 
-    const sendSOSAlertFunctionDeclaration: FunctionDeclaration = {
-        name: 'sendSOSAlert',
-        parameters: {
-            type: Type.OBJECT,
-            description: 'Dispatches an SOS alert to the HyperAPP community with the user location and a brief description of the emergency.',
-            properties: {
-                details: { type: Type.STRING, description: 'A brief, clear description of the emergency situation.' },
-            },
-            required: ['details'],
-        },
-    };
-
     const cleanup = () => {
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = undefined;
+            streamRef.current = null;
         }
         if (mediaStreamSourceRef.current) {
             mediaStreamSourceRef.current.disconnect();
-            mediaStreamSourceRef.current = undefined;
+            mediaStreamSourceRef.current = null;
         }
         if (scriptProcessorRef.current) {
             scriptProcessorRef.current.disconnect();
             scriptProcessorRef.current.onaudioprocess = null;
-            scriptProcessorRef.current = undefined;
+            scriptProcessorRef.current = null;
         }
         if (inputAudioContextRef.current && inputAudioContextRef.current.state !== 'closed') {
             inputAudioContextRef.current.close();
@@ -145,37 +123,35 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
                 let initialGreeting = 'Hello! I am your live emergency assistant. How can I help you?';
 
                 if (userLocation) {
-                    const { data: allVibes, error: vibesError } = await supabase.from('vibes').select('*');
+                    // FIX: Use the efficient RPC call instead of fetching the entire table.
+                    const { data: nearbyVibes, error: rpcError } = await supabase.rpc('get_nearby_vibes', {
+                        user_lat: userLocation.latitude,
+                        user_lng: userLocation.longitude,
+                        radius_km: 1
+                    });
 
-                    if (vibesError) {
-                        console.warn("Could not fetch nearby vibes for AI context:", vibesError.message);
-                    } else if (allVibes && allVibes.length > 0) {
-                        const parsedVibes = (allVibes as any[]).map(v => ({...v, location: parseLocation(v.location)}));
-                        const nearbyVibes = parsedVibes.filter(vibe => 
-                            vibe.location && haversineDistance({ lat: userLocation!.latitude, lng: userLocation!.longitude }, vibe.location) <= 1
-                        ) as Vibe[];
+                    if (rpcError) {
+                        console.warn("Could not fetch nearby vibes for AI context:", rpcError.message);
+                    } else if (nearbyVibes && nearbyVibes.length > 0) {
+                         const vibeDisplayNameMapping: Record<string, string> = {
+                            [VibeType.Safe]: 'Safe', [VibeType.Calm]: 'Calm', [VibeType.Noisy]: 'Noisy', [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly', [VibeType.Suspicious]: 'Suspicious', [VibeType.Dangerous]: 'Dangerous',
+                        };
+                        
+                        const vibeCounts = (nearbyVibes as Vibe[]).reduce((acc: any, vibe: Vibe) => {
+                            acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
+                            return acc;
+                        }, {});
+                        const totalVibes = nearbyVibes.length;
+                        const dominantVibe = Object.keys(vibeCounts).reduce((a, b) => vibeCounts[a] > vibeCounts[b] ? a : b);
+                        const dominantVibeName = vibeDisplayNameMapping[dominantVibe] || dominantVibe;
 
-                        if (nearbyVibes.length > 0) {
-                             const vibeDisplayNameMapping: Record<string, string> = {
-                                [VibeType.Safe]: 'Safe', [VibeType.Calm]: 'Calm', [VibeType.Noisy]: 'Noisy', [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly', [VibeType.Suspicious]: 'Suspicious', [VibeType.Dangerous]: 'Dangerous',
-                            };
-                            
-                            const vibeCounts = nearbyVibes.reduce((acc: any, vibe: Vibe) => {
-                                acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
-                                return acc;
-                            }, {});
-                            const totalVibes = nearbyVibes.length;
-                            const dominantVibe = Object.keys(vibeCounts).reduce((a, b) => vibeCounts[a] > vibeCounts[b] ? a : b);
-                            const dominantVibeName = vibeDisplayNameMapping[dominantVibe] || dominantVibe;
+                        initialGreeting = `Hello! I am your live emergency assistant. The current vibe in your area is reported as "${dominantVibeName}". How can I help you?`;
+                        
+                        const breakdownText = Object.entries(vibeCounts)
+                            .map(([type, count]) => `${(((count as number) / totalVibes) * 100).toFixed(0)}% ${vibeDisplayNameMapping[type] || type}`)
+                            .join(', ');
 
-                            initialGreeting = `Hello! I am your live emergency assistant. The current vibe in your area is reported as "${dominantVibeName}". How can I help you?`;
-                            
-                            const breakdownText = Object.entries(vibeCounts)
-                                .map(([type, count]) => `${(((count as number) / totalVibes) * 100).toFixed(0)}% ${vibeDisplayNameMapping[type] || type}`)
-                                .join(', ');
-
-                            vibeContext = `The area has ${totalVibes} recent report(s). Breakdown: ${breakdownText}.`;
-                        }
+                        vibeContext = `The area has ${totalVibes} recent report(s). Breakdown: ${breakdownText}.`;
                     }
                 }
                 
@@ -185,14 +161,22 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
 
                 setTranscription([{ speaker: 'model', text: initialGreeting }]);
                 
-                const systemInstruction = `You are a calm, helpful, and concise emergency assistant for the HyperAPP community safety app. You have access to real-time community data.
-
+                const sendSOSAlertFunctionDeclaration: FunctionDeclaration = {
+                    name: 'sendSOSAlert',
+                    parameters: {
+                        type: Type.OBJECT,
+                        description: `Dispatches an SOS alert to the HyperAPP community. This is a critical action for genuine emergencies.
 --- CONTEXT ---
 - User's Approximate Location: ${userAddress}
 - Local Community Vibe: ${vibeContext}
 --- END CONTEXT ---
-
-Your primary goal is to assess the user's situation and, if necessary, dispatch help using the 'sendSOSAlert' function. Use the location and vibe context to provide more specific guidance and ask relevant questions. For example, if the area is reported as 'Suspicious', you can ask what is making them feel that way. Only use the 'sendSOSAlert' function if you believe there is a genuine emergency that requires intervention.`;
+Use this context to inform your decision. Ask clarifying questions before dispatching.`,
+                        properties: {
+                            details: { type: Type.STRING, description: 'A brief, clear description of the emergency situation, as stated by the user.' },
+                        },
+                        required: ['details'],
+                    },
+                };
 
                 sessionPromiseRef.current = ai.live.connect({
                     model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -266,7 +250,8 @@ Your primary goal is to assess the user's situation and, if necessary, dispatch 
                                 for (const fc of message.toolCall.functionCalls) {
                                     if (fc.name === 'sendSOSAlert') {
                                         navigator.geolocation.getCurrentPosition(async (position) => {
-                                            const locationPayload = `POINT(${position.coords.longitude} ${position.coords.latitude})`;
+                                            // FIX: Use SRID=4326;POINT(lng lat) format for PostGIS geography type.
+                                            const locationPayload = `SRID=4326;POINT(${position.coords.longitude} ${position.coords.latitude})`;
                                             const { error } = await supabase.from('sos').insert({
                                                 user_id: auth?.user?.id,
                                                 details: fc.args.details || 'SOS Alert Activated via Live Assistant',
@@ -303,7 +288,6 @@ Your primary goal is to assess the user's situation and, if necessary, dispatch 
                         inputAudioTranscription: {},
                         outputAudioTranscription: {},
                         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
-                        systemInstruction,
                         tools: [{ functionDeclarations: [sendSOSAlertFunctionDeclaration] }],
                     },
                 });

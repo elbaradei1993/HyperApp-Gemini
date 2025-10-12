@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../services/supabaseClient';
@@ -23,10 +24,15 @@ L.Icon.Default.mergeOptions({
 });
 
 // Helper to convert Supabase GeoJSON point to our LatLng format
-// Supabase returns: { type: 'Point', coordinates: [lng, lat] }
+// Made robust to handle both new (GeoJSON) and old ({lat,lng}) formats.
 const parseLocation = (loc: any): Location | null => {
     if (loc && loc.coordinates && loc.coordinates.length === 2) {
+        // New GeoJSON format from PostGIS: { type: 'Point', coordinates: [lng, lat] }
         return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
+    }
+    if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
+        // Old format from JSONB: { lat: number, lng: number }
+        return loc;
     }
     return null;
 }
@@ -206,15 +212,37 @@ const MapWrapper: React.FC = () => {
     } else {
         const allMarkers = [];
         vibes.forEach(v => {
-            const marker = L.marker([v.location.lat, v.location.lng], { icon: getVibeIcon(v.vibe_type) })
-                .bindPopup(`<strong>Vibe:</strong> ${VIBE_CONFIG[v.vibe_type]?.displayName}<br><strong>By:</strong> ${v.profiles?.username || 'anonymous'}`);
+            const marker = L.marker([v.location.lat, v.location.lng], { icon: getVibeIcon(v.vibe_type) });
+            const popupContent = `<strong>Vibe:</strong> ${VIBE_CONFIG[v.vibe_type]?.displayName}<br><strong>By:</strong> ${v.profiles?.username || 'anonymous'}`;
+            
+            if (v.vibe_type === VibeType.Dangerous) {
+                marker.on('click', () => {
+                    if (window.confirm("This is a 'Dangerous' vibe report. Do you want to open the Live Assistant for immediate help?")) {
+                        navigate('/services');
+                    } else {
+                        L.popup().setLatLng(marker.getLatLng()).setContent(popupContent).openOn(map);
+                    }
+                });
+            } else {
+                marker.bindPopup(popupContent);
+            }
             allMarkers.push(marker);
         });
+        
         sos.forEach(s => {
-            const marker = L.marker([s.location.lat, s.location.lng], { icon: sosIcon })
-                .bindPopup(`<strong class="text-red-500">SOS ALERT!</strong><br><strong>By:</strong> ${s.profiles?.username || 'anonymous'}<br><strong>Details:</strong> ${s.details}`);
+            const marker = L.marker([s.location.lat, s.location.lng], { icon: sosIcon });
+            const popupContent = `<strong class="text-red-500">SOS ALERT!</strong><br><strong>By:</strong> ${s.profiles?.username || 'anonymous'}<br><strong>Details:</strong> ${s.details}`;
+            
+            marker.on('click', () => {
+                if (window.confirm("This is an SOS alert. Do you want to open the Live Assistant for immediate help?")) {
+                    navigate('/services');
+                } else {
+                    L.popup().setLatLng(marker.getLatLng()).setContent(popupContent).openOn(map);
+                }
+            });
             allMarkers.push(marker);
         });
+
         events.forEach(e => {
             const marker = L.marker([e.location.lat, e.location.lng], { icon: eventIcon })
                 .bindPopup(`<strong>Event:</strong> ${e.title}<br><strong>When:</strong> ${new Date(e.event_time).toLocaleString()}`);
@@ -226,7 +254,7 @@ const MapWrapper: React.FC = () => {
             map.addLayer(markerClusterGroupRef.current);
         }
     }
-  }, [vibes, sos, events, safeZones, showHeatmap, heatmapFilters, dataLoading]);
+  }, [vibes, sos, events, safeZones, showHeatmap, heatmapFilters, dataLoading, navigate]);
   
   // --- Map Interaction Effect ---
   useEffect(() => {
@@ -248,7 +276,7 @@ const MapWrapper: React.FC = () => {
             
             let prompt = `You are a local community safety assistant. Based on the following real-time vibe reports for a 1km radius, provide a concise summary and a practical safety tip. If there are no reports, say so and give a general safety tip.\n\n--- DATA ---\n`;
             if (nearbyVibes && nearbyVibes.length > 0) {
-                const vibeCounts = nearbyVibes.reduce((acc: any, vibe) => {
+                const vibeCounts = nearbyVibes.reduce((acc: Record<string, number>, vibe) => {
                     acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1; return acc;
                 }, {});
                 prompt += `- Vibe Reports: ${Object.entries(vibeCounts).map(([type, count]) => `${count} ${VIBE_CONFIG[type]?.displayName || type}`).join(', ')}\n`;

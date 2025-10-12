@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect, useRef } from 'use-react';
+
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../../contexts/DataContext';
 import { Vibe, SOS, Event, VibeType, Location } from '../../types';
