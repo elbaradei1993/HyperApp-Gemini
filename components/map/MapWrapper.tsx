@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../services/supabaseClient';
@@ -79,10 +78,10 @@ const MapWrapper: React.FC = () => {
 
 
   const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
-  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(true);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
   const [heatmapFilters, setHeatmapFilters] = useState<Set<VibeType>>(
-    // Default to showing the most critical vibes
-    new Set([VibeType.Dangerous, VibeType.Suspicious, VibeType.Noisy])
+    new Set(Object.values(VibeType))
   );
   const [summaryModalState, setSummaryModalState] = useState<SummaryModalState>({ isOpen: false, isLoading: false, summary: null, error: null });
   
@@ -313,6 +312,23 @@ const MapWrapper: React.FC = () => {
     });
   };
 
+  const handleFilterPanelToggle = () => {
+    if (!showHeatmap) {
+        setShowHeatmap(true);
+    }
+    setIsFilterPanelOpen(prev => !prev);
+  };
+
+  const handleHeatmapEnableToggle = () => {
+    setShowHeatmap(currentShowHeatmap => {
+        const newShowHeatmap = !currentShowHeatmap;
+        if (!newShowHeatmap) { // if we are turning it off
+            setIsFilterPanelOpen(false);
+        }
+        return newShowHeatmap;
+    });
+  };
+
   return (
     <div className="h-full w-full relative">
       <div ref={mapContainerRef} className={`absolute inset-0 z-0 ${isSettingZone ? 'cursor-crosshair' : ''}`} />
@@ -349,26 +365,46 @@ const MapWrapper: React.FC = () => {
         <button onClick={() => mapRef.current?.locate({ setView: true, maxZoom: 16 })} className="bg-white p-2 rounded-full shadow-lg">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24" fill="black" className="w-6 h-6"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path fillRule="evenodd" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-2.25a6.75 6.75 0 1 1 0-13.5 6.75 6.75 0 0 1 0 13.5Z" clipRule="evenodd" /></svg>
         </button>
-        <button onClick={() => setShowHeatmap(!showHeatmap)} className={`p-2 rounded-full shadow-lg transition-colors ${showHeatmap ? 'bg-brand-accent text-white' : 'bg-white text-black'}`}>
+        <button onClick={handleFilterPanelToggle} className={`p-2 rounded-full shadow-lg transition-colors ${showHeatmap ? 'bg-brand-accent text-white' : 'bg-white text-black'}`}>
           <FireIcon className="w-6 h-6" />
         </button>
       </div>
 
-      {showHeatmap && (
-        <div className="absolute top-24 right-4 z-[1000] bg-brand-secondary/90 backdrop-blur-sm p-3 rounded-lg shadow-lg max-w-xs w-48 animate-fade-in-down">
-          <p className="text-sm font-semibold mb-2 text-white border-b border-gray-600 pb-1">Heatmap Filters</p>
-          <div className="flex flex-col space-y-1">
-            {Object.entries(VIBE_CONFIG).map(([vibeType, config]) => (
-              <label key={vibeType} className="flex items-center space-x-2 cursor-pointer text-gray-200 hover:text-white">
+      {isFilterPanelOpen && (
+        <div className="absolute top-24 right-4 z-[1000] bg-brand-secondary/90 backdrop-blur-sm p-3 rounded-lg shadow-lg max-w-xs w-52 animate-fade-in-down">
+          <div className="flex justify-between items-center border-b border-gray-600 pb-2 mb-2">
+            <p className="text-sm font-semibold text-white">Heatmap Options</p>
+            <button onClick={() => setIsFilterPanelOpen(false)} className="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
+          </div>
+          
+          <label className="flex items-center justify-between cursor-pointer text-gray-200 hover:text-white py-1">
+            <span className="text-sm font-medium">Enable Heatmap</span>
+            <div className="relative">
                 <input
-                  type="checkbox"
-                  checked={heatmapFilters.has(vibeType as VibeType)}
-                  onChange={() => handleFilterToggle(vibeType as VibeType)}
-                  className="form-checkbox h-4 w-4 rounded bg-gray-700 border-gray-600 text-brand-accent focus:ring-brand-accent"
+                    type="checkbox"
+                    checked={showHeatmap}
+                    onChange={handleHeatmapEnableToggle}
+                    className="sr-only peer"
                 />
-                <span className="text-sm">{config.displayName}</span>
-              </label>
-            ))}
+                <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-accent"></div>
+            </div>
+          </label>
+
+          <div className={`mt-2 transition-opacity ${showHeatmap ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+             <p className="text-sm font-semibold mb-2 text-white pt-2 border-t border-gray-600">Vibe Filters</p>
+             <div className="flex flex-col space-y-1">
+                {Object.entries(VIBE_CONFIG).map(([vibeType, config]) => (
+                  <label key={vibeType} className="flex items-center space-x-2 cursor-pointer text-gray-200 hover:text-white">
+                    <input
+                      type="checkbox"
+                      checked={heatmapFilters.has(vibeType as VibeType)}
+                      onChange={() => handleFilterToggle(vibeType as VibeType)}
+                      className="form-checkbox h-4 w-4 rounded bg-gray-700 border-gray-600 text-brand-accent focus:ring-brand-accent"
+                    />
+                    <span className="text-sm">{config.displayName}</span>
+                  </label>
+                ))}
+            </div>
           </div>
         </div>
       )}

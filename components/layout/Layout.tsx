@@ -2,10 +2,21 @@ import React, { ReactNode, useEffect, useContext, useState } from 'react';
 import BottomNavbar from './BottomNavbar';
 import { supabase } from '../../services/supabaseClient';
 import { AuthContext } from '../../contexts/AuthContext';
-import type { SafeZone } from '../../types';
+import type { SafeZone, Location } from '../../types';
 import { VibeType } from '../../types';
 import { haversineDistance } from '../../utils/geolocation';
 import Header from './Header';
+
+// Helper to parse location, as it might be in different formats in the payload
+const parseLocationFromPayload = (loc: any): Location | null => {
+    if (loc && loc.type === 'Point' && loc.coordinates && loc.coordinates.length === 2) {
+        return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
+    }
+    if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
+        return loc;
+    }
+    return null;
+}
 
 interface LayoutProps {
   children: ReactNode;
@@ -28,30 +39,36 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         if (error) {
             console.error("Could not fetch safe zones for notifications:", error.message);
         } else {
-            setSafeZones(data || []);
+            // Safe zones fetched for the user also need location parsing
+            const parsedZones = (data || [])
+                .map(z => ({ ...z, location: parseLocationFromPayload(z.location) }))
+                .filter(z => z.location) as SafeZone[];
+            setSafeZones(parsedZones);
         }
     };
     
     fetchSafeZones();
 
-    // Channel to listen for new Vibe/SOS alerts
-    const alertChannel = supabase.channel('public-alerts')
+    // Channel to listen specifically for NEW critical alerts
+    const alertChannel = supabase.channel('public-alerts-insert-only')
       .on('postgres_changes', { event: 'INSERT', schema: 'public' },
         (payload) => {
-          if (safeZones.length === 0) return;
+          // DEFENSIVE FIX: Ensure payload.new exists before processing.
+          // This prevents crashes on events that don't have a 'new' record (like DELETE).
+          if (safeZones.length === 0 || !payload.new) return;
 
           const newRecord = payload.new as any;
           
-          let alertLocation: { lat: number, lng: number } | null = null;
+          let alertLocation: Location | null = null;
           let isCriticalAlert = false;
           let alertType = '';
 
           if (payload.table === 'vibes' && newRecord.vibe_type === VibeType.Dangerous) {
-            alertLocation = newRecord.location;
+            alertLocation = parseLocationFromPayload(newRecord.location);
             isCriticalAlert = true;
             alertType = 'Dangerous Vibe';
           } else if (payload.table === 'sos') {
-            alertLocation = newRecord.location;
+            alertLocation = parseLocationFromPayload(newRecord.location);
             isCriticalAlert = true;
             alertType = 'SOS Alert';
           }
@@ -61,12 +78,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               if (zone.location && zone.radius_km) {
                 const distance = haversineDistance(alertLocation, zone.location);
                 if (distance <= zone.radius_km) {
+                  // In a real app with a service worker, this would trigger a system notification.
+                  // For now, we use a console warning as a clear indicator.
                   console.warn(
                     `🚨 PUSH NOTIFICATION 🚨\n` +
                     `A new "${alertType}" was reported inside your safe zone "${zone.name}".\n` +
                     `Please check the map for more details.`
                   );
-                  // In a real app with a service worker, this would trigger a system notification.
                   break; // Notify only once per event.
                 }
               }
