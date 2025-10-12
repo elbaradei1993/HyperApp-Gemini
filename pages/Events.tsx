@@ -1,108 +1,202 @@
-import React, { useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useContext } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useData } from '../contexts/DataContext';
 import { AuthContext } from '../contexts/AuthContext';
 import { supabase } from '../services/supabaseClient';
-import type { Event as CommunityEvent } from '../types';
-import { timeAgo } from '../utils/time';
-import { TrashIcon, PencilSquareIcon, UserGroupIcon, PlusCircleIcon } from '../components/ui/Icons';
+import type { Event } from '../types';
+import { PlusCircleIcon, PencilSquareIcon, TrashIcon, UserGroupIcon } from '../components/ui/Icons';
 
-const CommunityEventCard: React.FC<{ event: CommunityEvent }> = ({ event }) => {
-  const auth = useContext(AuthContext);
-  const { userAttendees, attendEvent, unattendEvent, deleteLocalEvent } = useData();
-  const navigate = useNavigate();
+interface EventCardProps {
+    event: Event;
+    currentUserId: string;
+    isAttending: boolean;
+    onAttend: (eventId: number) => Promise<void>;
+    onLeave: (eventId: number) => Promise<void>;
+}
 
-  const isOwner = event.user_id === auth?.user?.id;
-  const isAttending = userAttendees.some(a => a.event_id === event.id && a.user_id === auth?.user?.id);
+const EventCard: React.FC<EventCardProps> = ({ event, currentUserId, isAttending, onAttend, onLeave }) => {
+    const { deleteEvent } = useData();
+    const [actionLoading, setActionLoading] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+    
+    const handleAttend = async () => {
+        setActionLoading(true);
+        await onAttend(event.id);
+        setActionLoading(false);
+    };
 
-  const handleDelete = async () => {
-    if (window.confirm("Are you sure you want to delete this event? This cannot be undone.")) {
-      // Optimistic UI update
-      deleteLocalEvent(event.id);
-      // DB operation
-      const { error } = await supabase.from('events').delete().eq('id', event.id);
-      if (error) {
-        alert(`Error: ${error.message}`);
-        // Consider reverting the optimistic update on error
-      }
-    }
-  };
+    const handleLeave = async () => {
+        setActionLoading(true);
+        await onLeave(event.id);
+        setActionLoading(false);
+    };
 
-  const handleAttendToggle = () => {
-    if (isAttending) {
-      unattendEvent(event.id);
-    } else {
-      attendEvent(event.id);
-    }
-  };
+    const handleDelete = async () => {
+        if (window.confirm("Are you sure you want to permanently delete this event?")) {
+            setIsDeleting(true);
+            await deleteEvent(event.id);
+            // No need to set isDeleting to false as the component will unmount
+        }
+    };
+    
+    const isOwner = event.user_id === currentUserId;
+    const now = new Date();
+    const eventEndDate = event.end_time ? new Date(event.end_time) : new Date(new Date(event.event_time).getTime() + 2 * 60 * 60 * 1000); // Default 2h duration
+    const isPastEvent = eventEndDate < now;
 
-  return (
-    <div className="bg-brand-secondary p-4 rounded-lg space-y-3 relative">
-      <div className="pr-16">
-        <h3 className="text-lg font-bold text-white">{event.title}</h3>
-        <p className="text-sm text-gray-400">
-          By {event.profiles?.username || 'anonymous'} • {timeAgo(event.created_at)}
-        </p>
-      </div>
-      
-      {event.description && <p className="text-gray-300 whitespace-pre-wrap">{event.description}</p>}
-      
-      <div className="flex justify-between items-center pt-2 border-t border-gray-600/50">
-        <div className="text-xs font-semibold text-brand-accent">
-          {new Date(event.event_time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+    return (
+        <div className={`bg-brand-secondary p-4 rounded-lg space-y-3 ${isPastEvent ? 'opacity-60' : ''}`}>
+            <div className="flex justify-between items-start">
+                <div>
+                    <h3 className="text-xl font-bold">{event.title}</h3>
+                    <p className="text-sm text-gray-400">by {event.profiles?.username || 'anonymous'}</p>
+                </div>
+                {isOwner && (
+                    <div className="flex space-x-2">
+                        <Link to={`/edit-event/${event.id}`} className="p-2 text-gray-400 hover:text-white">
+                            <PencilSquareIcon className="w-5 h-5" />
+                        </Link>
+                        {/* Removed Delete Button */}
+                    </div>
+                )}
+            </div>
+            <p className="text-gray-300">{event.description}</p>
+            <div>
+                <p className="font-semibold text-brand-accent">
+                    {new Date(event.event_time).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+                </p>
+                <p className="text-sm text-gray-400">
+                    {new Date(event.event_time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                    {event.end_time && ` - ${new Date(event.end_time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`}
+                </p>
+            </div>
+            <div className="flex justify-between items-center pt-3 border-t border-gray-700">
+                <div className="flex items-center space-x-2 text-gray-400">
+                    <UserGroupIcon className="w-5 h-5"/>
+                    <span>{event.attendee_count || 0} attending</span>
+                </div>
+                {!isPastEvent && (
+                    isAttending ? (
+                        <button onClick={handleLeave} disabled={actionLoading} className="bg-red-600/50 text-red-200 text-sm font-bold py-1 px-3 rounded-md hover:bg-red-600 disabled:opacity-50">
+                            Leave
+                        </button>
+                    ) : (
+                        <button onClick={handleAttend} disabled={actionLoading} className="bg-brand-accent text-white text-sm font-bold py-1 px-3 rounded-md hover:bg-blue-600 disabled:opacity-50">
+                            Attend
+                        </button>
+                    )
+                )}
+            </div>
         </div>
-        <div className="flex items-center space-x-2 text-gray-400">
-            <UserGroupIcon className="w-5 h-5"/>
-            <span className="text-sm font-medium">{event.attendee_count || 0}</span>
-        </div>
-      </div>
-
-      <div className="absolute top-3 right-3 flex items-center space-x-2">
-        {isOwner ? (
-          <>
-            <button onClick={() => navigate(`/edit-event/${event.id}`)} className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition-colors"><PencilSquareIcon className="w-5 h-5" /></button>
-            <button onClick={handleDelete} className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-red-400 transition-colors"><TrashIcon className="w-5 h-5" /></button>
-          </>
-        ) : (
-           <button 
-             onClick={handleAttendToggle}
-             className={`px-4 py-1.5 text-sm font-bold rounded-full transition-colors ${isAttending ? 'bg-red-600/50 text-red-200 hover:bg-red-600/80' : 'bg-brand-accent text-white hover:bg-blue-600'}`}
-           >
-             {isAttending ? 'Un-attend' : 'Attend'}
-           </button>
-        )}
-      </div>
-    </div>
-  );
+    );
 };
 
+
 const Events: React.FC = () => {
-    const { events, loading, error } = useData();
+    const { events, loading, error, attendEvent, unattendEvent } = useData();
+    const { user } = useContext(AuthContext) || {};
+    const [userAttendees, setUserAttendees] = useState<Set<number>>(new Set());
     const navigate = useNavigate();
+
+    useEffect(() => {
+        if (!user) return;
+        const fetchUserAttendees = async () => {
+            const { data, error } = await supabase
+                .from('event_attendees')
+                .select('event_id')
+                .eq('user_id', user.id);
+            if (error) {
+                console.error("Failed to fetch user's event attendance:", error);
+            } else if (data) {
+                setUserAttendees(new Set(data.map(a => a.event_id)));
+            }
+        };
+        fetchUserAttendees();
+    }, [user, events]);
+
+    const handleAttend = async (eventId: number) => {
+        if (!user) return;
+        await attendEvent(eventId);
+        setUserAttendees(prev => new Set(prev).add(eventId));
+    };
+
+    const handleLeave = async (eventId: number) => {
+        await unattendEvent(eventId);
+        setUserAttendees(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(eventId);
+            return newSet;
+        });
+    };
+    
+    const now = new Date();
+    const upcomingEvents = events.filter(e => {
+        const endDate = e.end_time ? new Date(e.end_time) : new Date(new Date(e.event_time).getTime() + 2 * 60 * 60 * 1000); // Default 2h duration
+        return endDate >= now;
+    }).sort((a,b) => new Date(a.event_time).getTime() - new Date(b.event_time).getTime());
+    
+    const pastEvents = events.filter(e => {
+        const endDate = e.end_time ? new Date(e.end_time) : new Date(new Date(e.event_time).getTime() + 2 * 60 * 60 * 1000); // Default 2h duration
+        return endDate < now;
+    }).sort((a,b) => new Date(b.event_time).getTime() - new Date(a.event_time).getTime());
+
 
     return (
         <div className="p-4 space-y-6">
-            <h1 className="text-3xl font-bold">Community Events</h1>
-
-            {loading ? <p className="text-center py-8 text-gray-400">Loading events...</p>
-            : error ? <p className="bg-red-500/20 text-red-300 p-3 rounded-md text-center">{error}</p>
-            : events.length === 0 ? (
-                <div className="text-center py-12 px-4 bg-brand-secondary rounded-lg">
-                    <h2 className="text-xl font-semibold text-white mb-2">No Events Nearby</h2>
-                    <p className="text-gray-400 mb-6">Be the first to create an event and bring your community together!</p>
-                    <button 
-                      onClick={() => navigate('/', { state: { settingEvent: true } })} 
-                      className="inline-flex items-center justify-center space-x-2 bg-brand-accent text-white font-bold py-3 px-6 rounded-full hover:bg-blue-600 transition-transform transform hover:scale-105"
-                    >
-                      <PlusCircleIcon className="w-6 h-6" />
-                      <span>Create New Event</span>
-                    </button>
-                </div>
-            )
-            : (
-                <div className="space-y-4">
-                    {events.map(event => <CommunityEventCard key={event.id} event={event} />)}
-                </div>
+            <div className="flex justify-between items-center">
+                <h1 className="text-3xl font-bold">Community Events</h1>
+                <button
+                    onClick={() => navigate('/', { state: { settingEvent: true } })}
+                    className="flex items-center space-x-2 bg-brand-accent text-white font-bold py-2 px-4 rounded-md hover:bg-blue-600"
+                >
+                    <PlusCircleIcon className="w-5 h-5" />
+                    <span>New Event</span>
+                </button>
+            </div>
+            
+            {loading && <p className="text-center py-8 text-gray-400">Loading events...</p>}
+            {error && <p className="bg-red-500/20 text-red-300 p-3 rounded-md text-center">{error}</p>}
+            
+            {!loading && !error && (
+                <>
+                    <div className="space-y-4">
+                        <h2 className="text-2xl font-semibold border-b border-gray-700 pb-2">Upcoming</h2>
+                        {upcomingEvents.length > 0 ? (
+                            upcomingEvents.map(event => (
+                                <EventCard
+                                    key={event.id}
+                                    event={event}
+                                    currentUserId={user?.id || ''}
+                                    isAttending={userAttendees.has(event.id)}
+                                    onAttend={handleAttend}
+                                    onLeave={handleLeave}
+                                />
+                            ))
+                        ) : (
+                             <div className="text-center py-8 text-gray-400">
+                                <p>No upcoming community events found.</p>
+                                <p className="text-sm mt-1">Why not create one?</p>
+                            </div>
+                        )}
+                    </div>
+                    <div className="space-y-4">
+                         <h2 className="text-2xl font-semibold border-b border-gray-700 pb-2">Past Events</h2>
+                         {pastEvents.length > 0 ? (
+                            pastEvents.slice(0, 10).map(event => ( // Show last 10 past events
+                                <EventCard
+                                    key={event.id}
+                                    event={event}
+                                    currentUserId={user?.id || ''}
+                                    isAttending={userAttendees.has(event.id)}
+                                    onAttend={handleAttend}
+                                    onLeave={handleLeave}
+                                />
+                            ))
+                        ) : (
+                            <p className="text-center py-4 text-gray-400">No past events found.</p>
+                        )}
+                    </div>
+                </>
             )}
         </div>
     );

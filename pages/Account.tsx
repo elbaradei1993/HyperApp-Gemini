@@ -1,13 +1,61 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { AuthContext } from '../contexts/AuthContext';
-import { Profile, SafeZone, Location } from '../types';
-import { TrashIcon, PlusCircleIcon, LocationMarkerIcon } from '../components/ui/Icons';
+import { useData } from '../contexts/DataContext';
+import { Profile, SafeZone, Location, Vibe, SOS, Event as CommunityEvent, VibeType } from '../types';
+import { TrashIcon, PlusCircleIcon, LocationMarkerIcon, FireIcon, BellAlertIcon, GlobeAltIcon } from '../components/ui/Icons';
 import { useLocation as useReactRouterLocation } from 'react-router-dom';
+import { timeAgo } from '../utils/time';
+
+// --- Reusable Activity Card Components (similar to Activity.tsx) ---
+type UserActivityItem =
+  | (Vibe & { itemType: 'vibe' })
+  | (SOS & { itemType: 'sos' })
+  | (CommunityEvent & { itemType: 'event' });
+
+const VIBE_DISPLAY_NAMES: Record<string, string> = {
+    [VibeType.Safe]: 'Safe', [VibeType.Calm]: 'Calm', [VibeType.Noisy]: 'Noisy',
+    [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly', [VibeType.Suspicious]: 'Suspicious', [VibeType.Dangerous]: 'Dangerous',
+};
+
+const UserActivityCard: React.FC<{ item: UserActivityItem }> = ({ item }) => {
+    let icon, title, details;
+
+    switch (item.itemType) {
+        case 'vibe':
+            icon = <FireIcon className="w-5 h-5 text-orange-400" />;
+            title = `You reported a "${VIBE_DISPLAY_NAMES[item.vibe_type] || 'Unknown'}" vibe`;
+            details = `Activity recorded`;
+            break;
+        case 'sos':
+            icon = <BellAlertIcon className="w-5 h-5 text-red-400" />;
+            title = `You sent an SOS Alert`;
+            details = item.details || `Activity recorded`;
+            break;
+        case 'event':
+            icon = <GlobeAltIcon className="w-5 h-5 text-blue-400" />;
+            title = `You created the event: "${item.title}"`;
+            details = new Date(item.event_time).toLocaleDateString();
+            break;
+    }
+
+    return (
+        <div className="bg-gray-700 p-3 rounded-lg flex items-start space-x-3">
+            <div className="flex-shrink-0 mt-1">{icon}</div>
+            <div className="flex-grow">
+                <p className="font-semibold text-white text-sm">{title}</p>
+                <p className="text-xs text-gray-400">{details}</p>
+            </div>
+            <div className="flex-shrink-0 text-xs text-gray-500">{timeAgo(item.created_at)}</div>
+        </div>
+    );
+};
+
 
 const Account: React.FC = () => {
   const auth = useContext(AuthContext);
+  const { vibes, sos, events } = useData();
   const navigate = useNavigate();
   const reactRouterLocation = useReactRouterLocation();
 
@@ -17,14 +65,45 @@ const Account: React.FC = () => {
   const [fullName, setFullName] = useState('');
   const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
 
-  // State for creating a new safe zone
   const [isAddingZone, setIsAddingZone] = useState(false);
   const [newZoneName, setNewZoneName] = useState('');
-  const [newZoneRadius, setNewZoneRadius] = useState(1); // Default 1km
+  const [newZoneRadius, setNewZoneRadius] = useState(1);
   const [newZoneLocation, setNewZoneLocation] = useState<Location | null>(null);
 
+  // --- Personal Activity Feed Logic ---
+  const userActivityFeed = useMemo(() => {
+    if (!auth?.user) return [];
+    
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const userVibes: UserActivityItem[] = vibes
+        .filter(v => v.user_id === auth.user!.id)
+        .map(v => ({ ...v, itemType: 'vibe' as const }));
+
+    const userSos: UserActivityItem[] = sos
+        .filter(s => s.user_id === auth.user!.id)
+        .map(s => ({ ...s, itemType: 'sos' as const }));
+
+    const userEvents: UserActivityItem[] = events
+        .filter(e => e.user_id === auth.user!.id)
+        // Smart Archiving: Only show events that have ended in the last 30 days
+        .filter(e => {
+            const now = new Date();
+            const eventEndDate = e.end_time 
+                ? new Date(e.end_time) 
+                : new Date(new Date(e.event_time).getTime() + 2 * 60 * 60 * 1000); // Default 2h duration
+            return eventEndDate > thirtyDaysAgo;
+        })
+        .map(e => ({ ...e, itemType: 'event' as const }));
+
+    return [...userVibes, ...userSos, ...userEvents]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  }, [vibes, sos, events, auth?.user]);
+
+
   useEffect(() => {
-    // This effect runs when the component mounts and gets the user profile
     const getProfile = async () => {
       if (!auth?.user) return;
       setLoading(true);
@@ -50,11 +129,9 @@ const Account: React.FC = () => {
   }, [auth?.user]);
   
   useEffect(() => {
-    // This effect listens for a location being passed back from the map
     if (reactRouterLocation.state?.newZoneLocation) {
         setNewZoneLocation(reactRouterLocation.state.newZoneLocation);
         setIsAddingZone(true);
-        // Clean up state from router history
         window.history.replaceState({}, document.title);
     }
   }, [reactRouterLocation.state]);
@@ -119,7 +196,6 @@ const Account: React.FC = () => {
           alert(error.message);
       } else if (data) {
           setSafeZones(prev => [...prev, data]);
-          // Reset form
           setIsAddingZone(false);
           setNewZoneName('');
           setNewZoneRadius(1);
@@ -144,7 +220,6 @@ const Account: React.FC = () => {
     if (error) {
       console.error('Error signing out:', error);
     } else {
-      // The onAuthStateChange listener in AuthContext will handle state updates
       navigate('/login', { replace: true });
     }
   };
@@ -156,6 +231,19 @@ const Account: React.FC = () => {
       <div>
         <h1 className="text-3xl font-bold">Account</h1>
         <p className="text-gray-400">Manage your profile and settings.</p>
+      </div>
+      
+       <div className="bg-brand-secondary p-4 rounded-lg space-y-4">
+        <h2 className="text-xl font-semibold">My Activity</h2>
+        <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+            {userActivityFeed.length > 0 ? (
+                userActivityFeed.map(item => (
+                    <UserActivityCard key={`${item.itemType}-${item.id}`} item={item} />
+                ))
+            ) : (
+                <p className="text-gray-500 text-sm text-center py-4">You haven't made any contributions yet.</p>
+            )}
+        </div>
       </div>
       
       <form onSubmit={updateProfile} className="bg-brand-secondary p-4 rounded-lg space-y-4">

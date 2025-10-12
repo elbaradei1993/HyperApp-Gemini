@@ -1,3 +1,4 @@
+// FIX: Removed self-import of 'Location' which was causing a conflict with the local declaration.
 // types.ts
 export interface Location {
   lat: number;
@@ -45,7 +46,8 @@ export interface Event extends BaseRecord {
   title: string;
   description: string;
   event_time: string;
-  attendee_count?: number; // Added for the new attendance feature
+  end_time?: string | null; // Added for smart archiving
+  attendee_count?: number;
 }
 
 export interface EventAttendee {

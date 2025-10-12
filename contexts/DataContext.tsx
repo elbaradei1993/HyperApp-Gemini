@@ -1,173 +1,186 @@
-// contexts/DataContext.tsx
-import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
+import React, { createContext, useState, useEffect, useContext, ReactNode, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { AuthContext } from './AuthContext';
 import type { Vibe, SOS, Event, Location, EventAttendee } from '../types';
+import { AuthContext } from './AuthContext';
+
+// Helper to parse location from GeoJSON format, which the RPC guarantees
+const parseLocationFromGeoJSON = (loc: any): Location | null => {
+  if (loc && loc.type === 'Point' && loc.coordinates && loc.coordinates.length === 2) {
+    // GeoJSON format: { type: 'Point', coordinates: [lng, lat] }
+    return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
+  }
+  // Add a fallback for simple {lat, lng} just in case
+  if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
+    return loc;
+  }
+  return null;
+};
+
+// Data processing function for records coming from the RPC
+const processRecord = <T extends { location: any }>(record: T): T | null => {
+  const parsedLocation = parseLocationFromGeoJSON(record.location);
+  if (!parsedLocation) {
+    console.warn("Skipping record due to invalid location data:", record);
+    return null;
+  }
+  return { ...record, location: parsedLocation };
+};
+
 
 interface DataContextType {
   vibes: Vibe[];
   sos: SOS[];
   events: Event[];
-  userAttendees: EventAttendee[];
+  attendees: EventAttendee[];
   loading: boolean;
   error: string | null;
   addLocalVibe: (vibe: Vibe) => void;
   addLocalEvent: (event: Event) => void;
-  deleteLocalEvent: (eventId: number) => void;
-  attendEvent: (eventId: number) => void;
-  unattendEvent: (eventId: number) => void;
+  updateEvent: (event: Event) => Promise<void>;
+  deleteEvent: (eventId: number) => Promise<void>;
+  attendEvent: (eventId: number) => Promise<void>;
+  unattendEvent: (eventId: number) => Promise<void>;
 }
 
-export const DataContext = createContext<DataContextType | undefined>(undefined);
-
-// The parseLocation function is now simpler as the RPC guarantees GeoJSON format.
-const parseLocation = (loc: any): Location | null => {
-    if (loc && loc.type === 'Point' && loc.coordinates && loc.coordinates.length === 2) {
-        return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
-    }
-    // Add a fallback for any other potential formats, though RPC should prevent this.
-    if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
-        return loc;
-    }
-    return null;
-}
+const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const auth = useContext(AuthContext);
+  const { session } = useContext(AuthContext) || {};
+
   const [vibes, setVibes] = useState<Vibe[]>([]);
   const [sos, setSos] = useState<SOS[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
-  const [userAttendees, setUserAttendees] = useState<EventAttendee[]>([]);
+  const [attendees, setAttendees] = useState<EventAttendee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    setLoading(true);
     setError(null);
     try {
-      // Use the single, powerful RPC call to get all data formatted correctly.
       const { data, error: rpcError } = await supabase.rpc('get_all_public_data');
-
-      if (rpcError) throw rpcError;
-      const allData = data || {};
-
-      const parsedVibes = (allData.vibes || []).map((v: any) => ({ ...v, location: parseLocation(v.location) })).filter((v: any) => v.location) as Vibe[];
-      const parsedSos = (allData.sos || []).map((s: any) => ({ ...s, location: parseLocation(s.location) })).filter((s: any) => s.location) as SOS[];
-      const parsedEvents = (allData.events || []).map((e: any) => ({ ...e, location: parseLocation(e.location) })).filter((e: any) => e.location) as Event[];
-      const attendees = (allData.attendees || []).filter((a: any) => a.user_id === auth?.user?.id) as EventAttendee[];
       
-      setVibes(parsedVibes);
-      setSos(parsedSos);
-      setEvents(parsedEvents);
-      setUserAttendees(attendees);
+      // Harden against null data responses from the RPC call
+      if (rpcError) throw rpcError;
+      const responseData = data || {};
+
+      setVibes((responseData.vibes || []).map(processRecord).filter(Boolean) as Vibe[]);
+      setSos((responseData.sos || []).map(processRecord).filter(Boolean) as SOS[]);
+      setEvents((responseData.events || []).map(processRecord).filter(Boolean) as Event[]);
+      setAttendees(responseData.attendees || []);
 
     } catch (err: any) {
-      setError(`Failed to load community data: ${err.message}`);
+      setError(`Error fetching initial data: ${err.message}`);
       console.error("Data fetching error:", err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (auth?.loading) return;
-    setLoading(true);
-    fetchData();
-  }, [auth?.session, auth?.loading]);
+    if (session) { // Only fetch data if user is logged in
+      fetchData();
+    }
+  }, [session, fetchData]);
 
-
-  // Robust Real-time Handler
   useEffect(() => {
     const handleRealtimeUpdate = (payload: any) => {
-        const { eventType, table, new: newRecord, old: oldRecord } = payload;
-        
-        // This function needs to be robust against incomplete data
-        const enrichRecord = (record: any) => {
-            if (!record) return null;
-            const parsed = { ...record, location: parseLocation(record.location) };
-            // Simulate the profile join for optimistic updates
-            if (record.user_id === auth?.user?.id && !record.profiles) {
-                parsed.profiles = { username: 'You' };
-            }
-            return parsed;
-        }
-
-        switch (table) {
-            case 'vibes':
-                if (eventType === 'INSERT') {
-                    const enriched = enrichRecord(newRecord);
-                    if (enriched?.location) setVibes(current => [enriched, ...current]);
-                }
-                break;
-            case 'sos':
-                 if (eventType === 'INSERT') {
-                    const enriched = enrichRecord(newRecord);
-                    if (enriched?.location) setSos(current => [enriched, ...current]);
-                } else if (eventType === 'UPDATE' && newRecord.resolved) {
-                    setSos(current => current.filter(s => s.id !== newRecord.id));
-                }
-                break;
-            case 'events':
-                if (eventType === 'INSERT') {
-                    const enriched = enrichRecord(newRecord);
-                    if (enriched?.location) setEvents(current => [{ ...enriched, attendee_count: 0 }, ...current]);
-                } else if (eventType === 'UPDATE') {
-                    setEvents(current => current.map(e => e.id === newRecord.id ? { ...e, ...enrichRecord(newRecord) } : e));
-                } else if (eventType === 'DELETE') {
-                    setEvents(current => current.filter(e => e.id !== oldRecord.id));
-                }
-                break;
-            case 'event_attendees':
-                if (eventType === 'INSERT' && newRecord.user_id === auth?.user?.id) {
-                    setUserAttendees(current => [...current, newRecord]);
-                    setEvents(current => current.map(e => e.id === newRecord.event_id ? { ...e, attendee_count: (e.attendee_count || 0) + 1 } : e));
-                } else if (eventType === 'DELETE' && oldRecord.user_id === auth?.user?.id) {
-                    setUserAttendees(current => current.filter(a => a.id !== oldRecord.id));
-                    setEvents(current => current.map(e => e.id === oldRecord.event_id ? { ...e, attendee_count: Math.max(0, (e.attendee_count || 1) - 1) } : e));
-                }
-                break;
-        }
+      // Use a more robust but simpler real-time strategy: refetch on any change.
+      // This avoids complex state management and race conditions.
+      console.log("Real-time change detected, refetching all data.", payload);
+      fetchData();
     };
 
-    const subscription = supabase.channel('public-data-realtime')
+    const changesChannel = supabase.channel('public-changes')
       .on('postgres_changes', { event: '*', schema: 'public' }, handleRealtimeUpdate)
       .subscribe();
-
+    
     return () => {
-      supabase.removeChannel(subscription);
+      supabase.removeChannel(changesChannel);
     };
-  }, [auth?.user?.id]);
+  }, [fetchData]);
+  
+  // Optimistic UI update functions
+  const addLocalVibe = (vibe: Vibe) => setVibes(prev => [vibe, ...prev]);
+  const addLocalEvent = (event: Event) => setEvents(prev => [...prev, event].sort((a,b) => new Date(a.event_time).getTime() - new Date(b.event_time).getTime()));
+  
+  // Robust optimistic update/delete functions
+  const deleteEvent = async (eventId: number) => {
+    const originalEvents = events;
+    setEvents(prev => prev.filter(e => e.id !== eventId)); // Optimistic delete
+    const { error } = await supabase.from('events').delete().eq('id', eventId);
+    if (error) {
+        console.error("Failed to delete event:", error);
+        setEvents(originalEvents); // Revert on error
+    }
+  };
 
-  const addLocalVibe = (vibe: Vibe) => setVibes(current => [vibe, ...current]);
-  const addLocalEvent = (event: Event) => setEvents(current => [event, ...current]);
-  const deleteLocalEvent = (eventId: number) => setEvents(current => current.filter(e => e.id !== eventId));
+  const updateEvent = async (updatedEvent: Event) => {
+      const originalEvents = events;
+      setEvents(prev => prev.map(e => e.id === updatedEvent.id ? updatedEvent : e));
+      const { error } = await supabase.from('events').update({
+          title: updatedEvent.title,
+          description: updatedEvent.description,
+          event_time: updatedEvent.event_time
+      }).eq('id', updatedEvent.id);
+      if (error) {
+          console.error("Failed to update event:", error);
+          setEvents(originalEvents);
+      }
+  };
   
   const attendEvent = async (eventId: number) => {
-    if (!auth?.user) return;
-    const optimisticAttendee = { id: Math.random(), event_id: eventId, user_id: auth.user.id, created_at: new Date().toISOString() };
-    setUserAttendees(current => [...current, optimisticAttendee]);
-    setEvents(current => current.map(e => e.id === eventId ? { ...e, attendee_count: (e.attendee_count || 0) + 1 } : e));
-    const { error } = await supabase.from('event_attendees').insert({ event_id: eventId, user_id: auth.user.id });
-    if (error) { // Revert on error
-        setUserAttendees(current => current.filter(a => a.id !== optimisticAttendee.id));
-        setEvents(current => current.map(e => e.id === eventId ? { ...e, attendee_count: Math.max(0, (e.attendee_count || 1) - 1) } : e));
-    }
+      const userId = session?.user?.id;
+      if (!userId) return;
+      
+      const originalEvents = events;
+      const originalAttendees = attendees;
+
+      // Optimistic update
+      setEvents(prev => prev.map(e => e.id === eventId ? { ...e, attendee_count: (e.attendee_count || 0) + 1 } : e));
+      setAttendees(prev => [...prev, { id: -1, event_id: eventId, user_id: userId, created_at: new Date().toISOString() }]);
+
+      const { error } = await supabase.from('event_attendees').insert({ event_id: eventId, user_id: userId });
+      if (error) {
+          console.error("Failed to attend event:", error);
+          setEvents(originalEvents); // Revert
+          setAttendees(originalAttendees);
+      }
   };
 
   const unattendEvent = async (eventId: number) => {
-    if (!auth?.user) return;
-    const attendeeToRemove = userAttendees.find(a => a.event_id === eventId && a.user_id === auth.user!.id);
-    if (!attendeeToRemove) return;
-    setUserAttendees(current => current.filter(a => a.id !== attendeeToRemove.id));
-    setEvents(current => current.map(e => e.id === eventId ? { ...e, attendee_count: Math.max(0, (e.attendee_count || 1) - 1) } : e));
-    const { error } = await supabase.from('event_attendees').delete().match({ event_id: eventId, user_id: auth.user.id });
-    if (error) { // Revert on error
-        setUserAttendees(current => [...current, attendeeToRemove]);
-        setEvents(current => current.map(e => e.id === eventId ? { ...e, attendee_count: (e.attendee_count || 0) + 1 } : e));
+    const userId = session?.user?.id;
+    if (!userId) return;
+
+    const originalEvents = events;
+    const originalAttendees = attendees;
+
+    // Optimistic update
+    setEvents(prev => prev.map(e => e.id === eventId ? { ...e, attendee_count: Math.max(0, (e.attendee_count || 1) - 1) } : e));
+    setAttendees(prev => prev.filter(a => !(a.event_id === eventId && a.user_id === userId)));
+
+    const { error } = await supabase.from('event_attendees').delete().eq('event_id', eventId).eq('user_id', userId);
+    if (error) {
+        console.error("Failed to unattend event:", error);
+        setEvents(originalEvents); // Revert
+        setAttendees(originalAttendees);
     }
   };
-  
 
-  const value = { vibes, sos, events, userAttendees, loading, error, addLocalVibe, addLocalEvent, deleteLocalEvent, attendEvent, unattendEvent };
+  const value = {
+    vibes,
+    sos,
+    events,
+    attendees,
+    loading,
+    error,
+    addLocalVibe,
+    addLocalEvent,
+    updateEvent,
+    deleteEvent,
+    attendEvent,
+    unattendEvent,
+  };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 };

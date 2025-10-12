@@ -11,6 +11,7 @@ const CreateEvent: React.FC = () => {
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [eventTime, setEventTime] = useState('');
+    const [endTime, setEndTime] = useState(''); // New state for end time
     const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
     const [address, setAddress] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -55,19 +56,25 @@ const CreateEvent: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setError(null);
         if (!title || !description || !eventTime || !location || !auth?.user) {
             setError("All fields are required and you must be logged in.");
             return;
         }
 
+        if (endTime && new Date(endTime) <= new Date(eventTime)) {
+            setError("End time must be after the start time.");
+            return;
+        }
+
         setLoading(true);
-        setError(null);
         const locationPayload = `SRID=4326;POINT(${location.lng} ${location.lat})`;
         const newEventData = {
             user_id: auth.user.id,
             title,
             description,
             event_time: new Date(eventTime).toISOString(),
+            end_time: endTime ? new Date(endTime).toISOString() : null, // Include end_time
             location: locationPayload,
         };
 
@@ -76,7 +83,6 @@ const CreateEvent: React.FC = () => {
         if (insertError) {
             setError(insertError.message);
         } else if (data) {
-            // Optimistic UI Update
             const optimisticEvent: CommunityEvent = {
               id: data.id,
               created_at: data.created_at,
@@ -84,6 +90,7 @@ const CreateEvent: React.FC = () => {
               title,
               description,
               event_time: new Date(eventTime).toISOString(),
+              end_time: endTime ? new Date(endTime).toISOString() : null,
               location,
               profiles: { username: 'You' },
               attendee_count: 0,
@@ -143,8 +150,12 @@ const CreateEvent: React.FC = () => {
                     </button>
                 </div>
                 <div>
-                    <label htmlFor="eventTime" className="block text-sm font-medium text-gray-400">Date and Time</label>
+                    <label htmlFor="eventTime" className="block text-sm font-medium text-gray-400">Start Date and Time</label>
                     <input id="eventTime" type="datetime-local" value={eventTime} onChange={e => setEventTime(e.target.value)} required className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" />
+                </div>
+                <div>
+                    <label htmlFor="endTime" className="block text-sm font-medium text-gray-400">End Date and Time (Optional)</label>
+                    <input id="endTime" type="datetime-local" value={endTime} onChange={e => setEndTime(e.target.value)} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" />
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-400">Location</label>

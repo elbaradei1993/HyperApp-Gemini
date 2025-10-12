@@ -35,8 +35,9 @@ const Trending: React.FC = () => {
             const trends = Object.entries(vibeCounts)
                 .map(([type, count]) => ({
                     type: type as VibeType,
-                    count,
-                    percentage: (count / totalVibes) * 100,
+// FIX: Explicitly cast `count` to a number to satisfy TypeScript's type checker for arithmetic operations and state updates.
+                    count: count as number,
+                    percentage: ((count as number) / totalVibes) * 100,
                 }))
                 .sort((a, b) => b.count - a.count);
             setTrendingVibes(trends);
