@@ -207,10 +207,12 @@ const MapWrapper: React.FC = () => {
           .map(v => [v.location.lat, v.location.lng, vibeIntensityMap[v.vibe_type]])
           .filter(v => v[2] > 0);
       
-      // DEFINITIVE FIX: Add a robust guard clause that checks both for data
-      // AND that the map container has a non-zero size. This prevents the
-      // "IndexSizeError" race condition crash permanently.
       if (heatmapData.length > 0) {
+          // DEFINITIVE FIX: Force Leaflet to re-measure its container size
+          // immediately before we attempt to draw. This guarantees the size
+          // check is not using stale data and prevents the race condition crash.
+          map.invalidateSize();
+          
           const mapSize = map.getSize();
           if (mapSize.x > 0 && mapSize.y > 0) {
               heatLayerRef.current = L.heatLayer(heatmapData, {
@@ -218,7 +220,7 @@ const MapWrapper: React.FC = () => {
                   gradient: { 0.2: '#34d399', 0.4: '#3b82f6', 0.6: '#f59e0b', 0.8: '#ef4444', 1.0: '#b91c1c' }
               }).addTo(map);
           } else {
-              console.warn("Map container has zero size, skipping heatmap render to prevent crash.");
+              console.warn("Map container has zero size after invalidation, skipping heatmap render to prevent crash.");
           }
       }
     } else {

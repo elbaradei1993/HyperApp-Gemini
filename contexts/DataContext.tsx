@@ -1,3 +1,4 @@
+// contexts/DataContext.tsx
 import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { AuthContext } from './AuthContext';
@@ -24,6 +25,10 @@ const parseLocation = (loc: any): Location | null => {
     if (loc && loc.type === 'Point' && loc.coordinates && loc.coordinates.length === 2) {
         return { lat: loc.coordinates[1], lng: loc.coordinates[0] };
     }
+    // Add a fallback for any other potential formats, though RPC should prevent this.
+    if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
+        return loc;
+    }
     return null;
 }
 
@@ -42,21 +47,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Use the single, powerful RPC call to get all data formatted correctly.
       const { data, error: rpcError } = await supabase.rpc('get_all_public_data');
 
-      // DEFINITIVE CRASH FIX: Add a defensive guard. If the RPC returns an error or null data,
-      // default to an empty object to prevent the app from crashing.
       if (rpcError) throw rpcError;
       const allData = data || {};
 
-      // Even with the RPC, we still parse to ensure the final shape is correct.
-      // The RPC guarantees the `location` field is valid GeoJSON, so parsing will succeed.
       const parsedVibes = (allData.vibes || []).map((v: any) => ({ ...v, location: parseLocation(v.location) })).filter((v: any) => v.location) as Vibe[];
       const parsedSos = (allData.sos || []).map((s: any) => ({ ...s, location: parseLocation(s.location) })).filter((s: any) => s.location) as SOS[];
       const parsedEvents = (allData.events || []).map((e: any) => ({ ...e, location: parseLocation(e.location) })).filter((e: any) => e.location) as Event[];
-      const attendees = (allData.attendees || []) as EventAttendee[];
+      const attendees = (allData.attendees || []).filter((a: any) => a.user_id === auth?.user?.id) as EventAttendee[];
       
-      setVibes(parsedVibes.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-      setSos(parsedSos.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-      setEvents(parsedEvents.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      setVibes(parsedVibes);
+      setSos(parsedSos);
+      setEvents(parsedEvents);
       setUserAttendees(attendees);
 
     } catch (err: any) {
@@ -67,15 +68,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // This effect now correctly depends on the user's session.
-  // It will run on initial load and again whenever the user logs in or out.
   useEffect(() => {
-    // Don't fetch data until the auth state is resolved.
     if (auth?.loading) return;
-    
     setLoading(true);
     fetchData();
-
   }, [auth?.session, auth?.loading]);
 
 
@@ -84,37 +80,47 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const handleRealtimeUpdate = (payload: any) => {
         const { eventType, table, new: newRecord, old: oldRecord } = payload;
         
+        // This function needs to be robust against incomplete data
+        const enrichRecord = (record: any) => {
+            if (!record) return null;
+            const parsed = { ...record, location: parseLocation(record.location) };
+            // Simulate the profile join for optimistic updates
+            if (record.user_id === auth?.user?.id && !record.profiles) {
+                parsed.profiles = { username: 'You' };
+            }
+            return parsed;
+        }
+
         switch (table) {
             case 'vibes':
                 if (eventType === 'INSERT') {
-                    const parsedVibe = { ...newRecord, location: parseLocation(newRecord.location) };
-                    if (parsedVibe.location) setVibes(current => [parsedVibe, ...current]);
+                    const enriched = enrichRecord(newRecord);
+                    if (enriched?.location) setVibes(current => [enriched, ...current]);
                 }
                 break;
             case 'sos':
                  if (eventType === 'INSERT') {
-                    const parsedSos = { ...newRecord, location: parseLocation(newRecord.location) };
-                    if (parsedSos.location) setSos(current => [parsedSos, ...current]);
+                    const enriched = enrichRecord(newRecord);
+                    if (enriched?.location) setSos(current => [enriched, ...current]);
                 } else if (eventType === 'UPDATE' && newRecord.resolved) {
                     setSos(current => current.filter(s => s.id !== newRecord.id));
                 }
                 break;
             case 'events':
                 if (eventType === 'INSERT') {
-                    const parsedEvent = { ...newRecord, location: parseLocation(newRecord.location), attendee_count: 0 };
-                    if (parsedEvent.location) setEvents(current => [parsedEvent, ...current]);
+                    const enriched = enrichRecord(newRecord);
+                    if (enriched?.location) setEvents(current => [{ ...enriched, attendee_count: 0 }, ...current]);
                 } else if (eventType === 'UPDATE') {
-                    const parsedEvent = { ...newRecord, location: parseLocation(newRecord.location) };
-                    if(parsedEvent.location) setEvents(current => current.map(e => e.id === parsedEvent.id ? { ...e, ...parsedEvent } : e));
+                    setEvents(current => current.map(e => e.id === newRecord.id ? { ...e, ...enrichRecord(newRecord) } : e));
                 } else if (eventType === 'DELETE') {
                     setEvents(current => current.filter(e => e.id !== oldRecord.id));
                 }
                 break;
             case 'event_attendees':
-                if (eventType === 'INSERT') {
+                if (eventType === 'INSERT' && newRecord.user_id === auth?.user?.id) {
                     setUserAttendees(current => [...current, newRecord]);
                     setEvents(current => current.map(e => e.id === newRecord.event_id ? { ...e, attendee_count: (e.attendee_count || 0) + 1 } : e));
-                } else if (eventType === 'DELETE') {
+                } else if (eventType === 'DELETE' && oldRecord.user_id === auth?.user?.id) {
                     setUserAttendees(current => current.filter(a => a.id !== oldRecord.id));
                     setEvents(current => current.map(e => e.id === oldRecord.event_id ? { ...e, attendee_count: Math.max(0, (e.attendee_count || 1) - 1) } : e));
                 }
@@ -129,7 +135,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, []);
+  }, [auth?.user?.id]);
 
   const addLocalVibe = (vibe: Vibe) => setVibes(current => [vibe, ...current]);
   const addLocalEvent = (event: Event) => setEvents(current => [event, ...current]);
@@ -137,20 +143,27 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   const attendEvent = async (eventId: number) => {
     if (!auth?.user) return;
-    // Optimistic update
-    setUserAttendees(current => [...current, { id: -1, event_id: eventId, user_id: auth.user!.id, created_at: new Date().toISOString() }]);
+    const optimisticAttendee = { id: Math.random(), event_id: eventId, user_id: auth.user.id, created_at: new Date().toISOString() };
+    setUserAttendees(current => [...current, optimisticAttendee]);
     setEvents(current => current.map(e => e.id === eventId ? { ...e, attendee_count: (e.attendee_count || 0) + 1 } : e));
-    // DB operation
-    await supabase.from('event_attendees').insert({ event_id: eventId, user_id: auth.user.id });
+    const { error } = await supabase.from('event_attendees').insert({ event_id: eventId, user_id: auth.user.id });
+    if (error) { // Revert on error
+        setUserAttendees(current => current.filter(a => a.id !== optimisticAttendee.id));
+        setEvents(current => current.map(e => e.id === eventId ? { ...e, attendee_count: Math.max(0, (e.attendee_count || 1) - 1) } : e));
+    }
   };
 
   const unattendEvent = async (eventId: number) => {
     if (!auth?.user) return;
-    // Optimistic update
-    setUserAttendees(current => current.filter(a => !(a.event_id === eventId && a.user_id === auth.user!.id)));
+    const attendeeToRemove = userAttendees.find(a => a.event_id === eventId && a.user_id === auth.user!.id);
+    if (!attendeeToRemove) return;
+    setUserAttendees(current => current.filter(a => a.id !== attendeeToRemove.id));
     setEvents(current => current.map(e => e.id === eventId ? { ...e, attendee_count: Math.max(0, (e.attendee_count || 1) - 1) } : e));
-    // DB operation
-    await supabase.from('event_attendees').delete().match({ event_id: eventId, user_id: auth.user.id });
+    const { error } = await supabase.from('event_attendees').delete().match({ event_id: eventId, user_id: auth.user.id });
+    if (error) { // Revert on error
+        setUserAttendees(current => [...current, attendeeToRemove]);
+        setEvents(current => current.map(e => e.id === eventId ? { ...e, attendee_count: (e.attendee_count || 0) + 1 } : e));
+    }
   };
   
 

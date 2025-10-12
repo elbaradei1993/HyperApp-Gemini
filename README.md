@@ -1,84 +1,67 @@
-# HyperAPP - Community Safety
+# HyperAPP - Community Safety Application
 
-A mobile-first progressive web app for community safety, allowing users to report local "vibes", send SOS alerts, create events, and view live neighborhood activity on a map. The app leverages Supabase for the backend and the Google Gemini API for AI-powered insights.
+HyperAPP is a mobile-first web application designed to enhance community safety. It allows users to report the "vibe" of their surroundings, send SOS alerts in emergencies, discover and create local events, and view a live, interactive map of neighborhood activity.
 
-## Project Structure
+## 🚀 Getting Started
 
-```
-/
-├── components/
-├── contexts/
-├── pages/
-├── services/
-├── supabase/      <-- Contains required SQL setup file
-│   └── schema.sql
-├── utils/
-├── App.tsx
-├── index.html
-├── index.tsx
-└── README.md
-```
+This application requires a connection to a Supabase backend for data storage and a Google Gemini API key for its AI-powered features.
 
-## Setup Instructions
+### 🔑 Environment Setup (CRITICAL)
 
-Follow these steps carefully to get your own instance of HyperAPP running.
+The application will fail to start if it cannot connect to these services. You must configure the following environment variables (also known as "Secrets") in your development environment.
 
-### 1. Supabase Project Credentials
+**Required Variables:**
 
-1.  Go to [supabase.com](https://supabase.com) and create a new project.
-2.  In your Supabase project dashboard, navigate to **Project Settings** > **API**.
-3.  Find your **Project URL** and **`anon` public key**.
-4.  Open `services/supabaseClient.ts` in your code editor.
-5.  Replace the placeholder values for `supabaseUrl` and `supabaseAnonKey` with your own credentials.
+1.  `SUPABASE_URL`: Your unique URL for your Supabase project.
+2.  `SUPABASE_ANON_KEY`: The `anon` (anonymous) public key for your Supabase project.
+3.  `API_KEY`: Your API key for Google Gemini.
 
-### 2. CORS Configuration (Important for "Failed to Fetch" Errors)
+**How to Configure:**
 
-If the app shows a "Connection Error" or you see `TypeError: Failed to fetch` in the console, you **must** configure CORS in your Supabase project. This tells Supabase it's safe to accept requests from the app.
+1.  **Find Your Supabase Credentials:**
+    *   Go to your Supabase project dashboard.
+    *   Navigate to **Project Settings** (the gear icon).
+    *   Click on **API**.
+    *   Under "Project API keys", you will find your `anon` `public` key. This is your `SUPABASE_ANON_KEY`.
+    *   Under "Configuration", you will find your **Project URL**. This is your `SUPABASE_URL`.
 
-1.  In your Supabase project dashboard, go to **Project Settings** > **API**.
-2.  Scroll down to the **CORS Configuration** section.
-3.  The default settings might not work for this development environment. The simplest solution is to allow all origins.
-4.  Enter `*` (a single asterisk) into the text box and click **Save**. This will allow the app to connect from any URL.
+2.  **Find Your Gemini API Key:**
+    *   Go to the [Google AI Studio](https://aistudio.google.com/).
+    *   Click on **"Get API key"**.
+    *   Create or use an existing API key.
 
-### 3. Database Setup
+3.  **Set the Environment Variables (Secrets):**
+    *   In your development environment, find the section for managing "Secrets" or "Environment Variables".
+    *   Create three new secrets with the **exact names** listed above and paste in the corresponding values you just copied.
+    *   **Important:** After setting the variables, you may need to restart or redeploy the application for the changes to take effect.
 
-This is the most critical step. The project **will not work** without a correctly configured database.
+---
 
-1.  **Enable PostGIS Extension (Crucial First Step):**
-    *   In your Supabase project dashboard, go to **Database** > **Extensions**.
-    *   Use the search bar to find `postgis`.
-    *   Click to highlight it, then click **Enable**. If it's already enabled, you can proceed.
+## Features
 
-2.  **Run SQL Schema Script:**
-    *   Go to the **SQL Editor** in your Supabase dashboard (icon looks like a page with `SQL` on it).
-    *   Click **New query**.
-    *   Open the `supabase/schema.sql` file from your project.
-    *   Copy its entire content.
-    *   Paste it into the Supabase SQL Editor and click **Run**. Wait for the "Success. No rows returned" message.
+*   **Real-time Interactive Map:** View vibes, alerts, and events on a live map with heatmap and clustering capabilities.
+*   **Community Vibe Reporting:** Share the feeling of an area with categories like 'Safe', 'Calm', 'Suspicious', or 'Dangerous'.
+*   **Emergency SOS:** Send location-based SOS alerts to the community.
+*   **Live AI Assistant:** An emergency voice assistant powered by Gemini to help in critical situations.
+*   **Community Events Hub:** Discover major local events via the Ticketmaster API or create and manage your own community gatherings.
+*   **AI-Powered Insights:** Get smart safety tips, event safety previews, and AI-enhanced descriptions.
+*   **Personalized Profiles:** Manage your activity, create custom "Safe Zones" for notifications, and update your profile.
 
-3.  **Enable Real-Time Broadcasting (CRITICAL FOR LIVE UPDATES):**
-    *   For the map and other features to update in real-time, you must tell Supabase which tables to broadcast changes from.
-    *   In your Supabase project dashboard, go to **Database** > **Replication**.
-    *   Under the "Source" section, you will likely see text that says "0 tables". Click on it.
-    *   A dialog will appear. Check the boxes for the `vibes`, `sos`, `events`, and `safe_zones` tables.
-    *   Click **Save**. The text should now say "4 tables", and real-time updates will be enabled.
+## Backend Setup (Supabase)
 
-After running these steps successfully, your database will be fully configured.
+For the application to function correctly, your Supabase project must be configured with the correct database schema and security policies.
 
-### 4. Google Gemini API Key
+1.  **Enable PostGIS Extension:**
+    *   In your Supabase Dashboard, go to **Database -> Extensions**.
+    *   Find `postgis` in the list and enable it.
 
-The AI features (Smart Vibe Explanation, Trending Insights, etc.) are powered by the Google Gemini API.
+2.  **Run the Schema Script:**
+    *   The `supabase/schema.sql` file in this repository contains all the necessary tables, functions, and security policies.
+    *   Go to the **SQL Editor** in your Supabase dashboard.
+    *   Paste the entire contents of the `supabase/schema.sql` file into a new query and click **RUN**. This script is safe to run multiple times.
 
-1.  Go to [Google AI Studio](https://aistudio.google.com/) and create an API key.
-2.  This project expects the API key to be available as an environment variable named `API_KEY`. You will need to configure this in your deployment environment for the AI features to work.
-
-## Troubleshooting
-
--   **"Connection Error" / "TypeError: Failed to fetch"**: Your browser is blocking requests to Supabase.
-    -   **Solution**: Follow the instructions in the **"CORS Configuration"** section above. This is the most common setup issue. Also, try disabling any ad-blockers or privacy extensions, as they can sometimes interfere with requests.
-
--   **Map / Data doesn't update after reporting a vibe**: This means the real-time connection is not working.
-    -   **Solution**: You have likely missed step **3.3: Enable Real-Time Broadcasting**. Follow those instructions to enable replication on your tables.
-
--   **"An internal error occurred" / Map is empty**: This is almost always a sign of a problem with the database setup. It means the app connected to Supabase, but the query failed, likely due to a missing table or incorrect Row Level Security (RLS) policies.
-    -   **Solution**: Double-check that you have enabled the `postgis` extension. Then, carefully re-run the `supabase/schema.sql` script. This will reset your tables and security policies to the correct state.
+3.  **Enable Real-time Broadcasting:**
+    *   The map and activity feeds rely on real-time updates.
+    *   Go to **Database -> Replication**.
+    *   Under "Source", find your `supabase_realtime` publication. Click the link that says "X tables".
+    *   Toggle on broadcasting for the `vibes`, `sos`, `events`, and `event_attendees` tables.
