@@ -1,10 +1,7 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { useData } from '../contexts/DataContext';
-import { TrashIcon } from '../components/ui/Icons';
-import { timeAgo } from '../utils/time';
-import { VIBE_DISPLAY_NAMES } from '../components/activity/ActivityCard';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -14,10 +11,6 @@ const Settings: React.FC = () => {
         userSettings, 
         updateUserSettings, 
         clearAiCache,
-        vibes,
-        sos,
-        deleteVibe,
-        deleteSOS
     } = useData();
     const [theme, setTheme] = React.useState<Theme>('system');
 
@@ -76,17 +69,6 @@ const Settings: React.FC = () => {
         </div>
     );
     
-    const ThemeButton: React.FC<{ value: Theme, label: string }> = ({ value, label }) => (
-         <button
-            onClick={() => handleThemeChange(value)}
-            className={`flex-1 text-sm font-semibold py-2 rounded-md transition-colors ${
-                theme === value ? 'bg-brand-accent text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }`}
-        >
-            {label}
-        </button>
-    );
-    
     const SettingToggle: React.FC<{id: string; label: string; description: string; isChecked: boolean; onToggle: (isChecked: boolean) => void;}> = ({ id, label, description, isChecked, onToggle }) => (
         <div className="flex items-start justify-between">
             <div className="pr-4">
@@ -125,9 +107,6 @@ const Settings: React.FC = () => {
             </div>
         </div>
     );
-
-    const userVibes = React.useMemo(() => vibes.filter(v => v.profiles?.username === 'You').sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [vibes]);
-    const userSOS = React.useMemo(() => sos.filter(s => s.profiles?.username === 'You').sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [sos]);
 
     return (
         <div className="p-4 space-y-6">
@@ -185,29 +164,6 @@ const Settings: React.FC = () => {
                     isChecked={userSettings.privacy.anonymousByDefault}
                     onToggle={(val) => handleSettingToggle('privacy', 'anonymousByDefault', val)}
                 />
-                <div className="space-y-2">
-                    <p className="font-semibold">Manage My Contributions</p>
-                    <div className="max-h-60 overflow-y-auto space-y-2 bg-brand-primary/50 p-2 rounded-md">
-                        {userVibes.length === 0 && userSOS.length === 0 ? (
-                            <p className="text-sm text-center text-gray-500 py-4">You have not reported any vibes or alerts yet.</p>
-                        ) : (
-                            <>
-                                {userVibes.map(v => (
-                                    <div key={`vibe-${v.id}`} className="flex justify-between items-center bg-gray-700 p-2 rounded-md">
-                                        <p className="text-sm">Vibe: <span className="font-semibold">{VIBE_DISPLAY_NAMES[v.vibe_type]}</span> <span className="text-gray-400">({timeAgo(v.created_at)})</span></p>
-                                        <button onClick={() => deleteVibe(v.id)} className="text-gray-400 hover:text-red-400 p-1"><TrashIcon className="w-4 h-4"/></button>
-                                    </div>
-                                ))}
-                                {userSOS.map(s => (
-                                    <div key={`sos-${s.id}`} className="flex justify-between items-center bg-red-800/50 p-2 rounded-md">
-                                        <p className="text-sm">SOS: <span className="font-semibold">{s.details}</span> <span className="text-gray-400">({timeAgo(s.created_at)})</span></p>
-                                        <button onClick={() => deleteSOS(s.id)} className="text-gray-400 hover:text-red-300 p-1"><TrashIcon className="w-4 h-4"/></button>
-                                    </div>
-                                ))}
-                            </>
-                        )}
-                    </div>
-                </div>
                  <button onClick={clearAiCache} className="w-full bg-gray-700 text-white font-bold py-2 px-4 rounded-md hover:bg-gray-600">
                     Clear Local AI Cache
                 </button>
