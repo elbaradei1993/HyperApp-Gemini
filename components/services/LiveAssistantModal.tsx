@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useContext } from 'react';
+import React, { useState, useEffect, useRef, useContext, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Blob, FunctionDeclaration, Type } from '@google/genai';
 import { decode, decodeAudioData, encode } from '../../utils/audio';
 import { supabase } from '../../services/supabaseClient';
@@ -17,8 +17,6 @@ interface TranscriptionEntry {
     text: string;
 }
 
-// Define a local interface for the LiveSession to avoid importing a non-exported type.
-// This provides type safety for the session object's methods used in this component.
 interface LiveSession {
     sendRealtimeInput(input: { media: Blob }): void;
     sendToolResponse(response: { functionResponses: { id: string; name: string; response: { result: string; }; } }): void;
@@ -40,16 +38,14 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
     const outputSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
     const nextStartTimeRef = useRef(0);
     
-    // Refs for waveform visualization
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const analyserRef = useRef<AnalyserNode | null>(null);
     const animationFrameIdRef = useRef<number | null>(null);
     
-    // Using refs for transcription parts to avoid stale state in callbacks
     const currentInputTranscriptionRef = useRef('');
     const currentOutputTranscriptionRef = useRef('');
 
-    const drawWaveform = () => {
+    const drawWaveform = useCallback(() => {
         if (!analyserRef.current || !canvasRef.current) return;
 
         animationFrameIdRef.current = requestAnimationFrame(drawWaveform);
@@ -58,9 +54,7 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
         const canvas = canvasRef.current;
         const canvasCtx = canvas.getContext('2d');
         
-        // FIX: Add a robust guard including `isConnected` to prevent drawing if the
-        // canvas is detached from the DOM, which would cause an IndexSizeError.
-        if (!canvasCtx || !canvas.isConnected || canvas.width === 0 || canvas.height === 0) {
+        if (!canvasCtx || canvas.width === 0 || canvas.height === 0) {
             return;
         }
 
@@ -68,10 +62,10 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
         const dataArray = new Uint8Array(bufferLength);
         analyser.getByteTimeDomainData(dataArray);
 
-        canvasCtx.fillStyle = 'rgb(26, 32, 44)'; // bg-brand-primary
+        canvasCtx.fillStyle = 'rgb(26, 32, 44)';
         canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
         canvasCtx.lineWidth = 2;
-        canvasCtx.strokeStyle = 'rgb(66, 153, 225)'; // brand-accent
+        canvasCtx.strokeStyle = 'rgb(66, 153, 225)';
         canvasCtx.beginPath();
 
         const sliceWidth = (canvas.width * 1.0) / bufferLength;
@@ -88,14 +82,13 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
         }
         canvasCtx.lineTo(canvas.width, canvas.height / 2);
         canvasCtx.stroke();
-    };
+    }, []);
 
     const cleanup = () => {
         if (animationFrameIdRef.current) {
             cancelAnimationFrame(animationFrameIdRef.current);
             animationFrameIdRef.current = null;
         }
-
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
             streamRef.current = null;
@@ -113,17 +106,14 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
             analyserRef.current.disconnect();
             analyserRef.current = null;
         }
-
         if (inputAudioContextRef.current && inputAudioContextRef.current.state !== 'closed') {
             inputAudioContextRef.current.close();
         }
         if (outputAudioContextRef.current && outputAudioContextRef.current.state !== 'closed') {
             outputAudioContextRef.current.close();
         }
-
         sessionPromiseRef.current?.then(session => session.close()).catch(console.error);
         sessionPromiseRef.current = null;
-        
         for (const source of outputSourcesRef.current.values()) {
             try { source.stop(); } catch(e) { /* ignore */ }
         }
@@ -177,7 +167,6 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
                 }
                 
                 setStatus('Analyzing Area Data...');
-                // --- CONTEXT BUILDING START ---
                 let vibeContext = 'No recent community vibe data is available for this area.';
                 let sosContext = 'No recent SOS alerts have been reported in this area.';
                 let eventContext = 'No community events are happening nearby.';
@@ -185,25 +174,20 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
 
                 if (userLocation) {
                     const userLatLng = { lat: userLocation.latitude, lng: userLocation.longitude };
-
-                    // Filter data from global context to find nearby items
                     const nearbyVibes = vibes
                         .filter(vibe => haversineDistance(userLatLng, vibe.location) <= 1)
                         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-                    
                     const nearbySOS = sos
                         .filter(s => haversineDistance(userLatLng, s.location) <= 1)
                         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-                        
                     const now = new Date();
                     const nearbyEvents = events
                         .filter(e => {
-                            const eventEndDate = e.end_time ? new Date(e.end_time) : new Date(new Date(e.event_time).getTime() + 2 * 60 * 60 * 1000); // Default 2h duration
+                            const eventEndDate = e.end_time ? new Date(e.end_time) : new Date(new Date(e.event_time).getTime() + 2 * 60 * 60 * 1000);
                             return eventEndDate >= now && haversineDistance(userLatLng, e.location) <= 1;
                         })
                         .sort((a, b) => new Date(a.event_time).getTime() - new Date(b.event_time).getTime());
 
-                    // Build Vibe Context
                     if (nearbyVibes.length > 0) {
                         const vibeDisplayNameMapping: Record<string, string> = {
                             [VibeType.Safe]: 'Safe', [VibeType.Calm]: 'Calm', [VibeType.Noisy]: 'Noisy', [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly', [VibeType.Suspicious]: 'Suspicious', [VibeType.Dangerous]: 'Dangerous',
@@ -224,18 +208,13 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
 
                         vibeContext = `The area has ${totalVibes} recent report(s). Breakdown: ${breakdownText}.`;
                     }
-
-                    // Build SOS Context
                     if (nearbySOS.length > 0) {
                         sosContext = `There are ${nearbySOS.length} recent SOS alert(s) nearby. The latest one reports: "${nearbySOS[0].details}".`;
                     }
-
-                    // Build Event Context
                     if (nearbyEvents.length > 0) {
                         eventContext = `There is an upcoming community event nearby: "${nearbyEvents[0].title}". This may cause crowds or noise.`;
                     }
                 }
-                // --- CONTEXT BUILDING END ---
                 
                 setStatus('Connecting...');
                 inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -280,7 +259,16 @@ Use this comprehensive context to inform your decision. Ask clarifying questions
                             analyser.connect(scriptProcessor);
                             scriptProcessor.connect(inputAudioContextRef.current!.destination);
                             
-                            drawWaveform();
+                             // FIX: Use ResizeObserver to safely start the animation.
+                            if (canvasRef.current) {
+                                const resizeObserver = new ResizeObserver(entries => {
+                                    if (entries[0] && entries[0].contentRect.width > 0) {
+                                        drawWaveform();
+                                        resizeObserver.disconnect();
+                                    }
+                                });
+                                resizeObserver.observe(canvasRef.current);
+                            }
 
                             scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
                                 const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
@@ -342,7 +330,6 @@ Use this comprehensive context to inform your decision. Ask clarifying questions
                                 for (const fc of message.toolCall.functionCalls) {
                                     if (fc.name === 'sendSOSAlert') {
                                         navigator.geolocation.getCurrentPosition(async (position) => {
-                                            // FIX: Use SRID=4326;POINT(lng lat) format for PostGIS geography type.
                                             const locationPayload = `SRID=4326;POINT(${position.coords.longitude} ${position.coords.latitude})`;
                                             const { error } = await supabase.from('sos').insert({
                                                 user_id: auth?.user?.id,
@@ -401,7 +388,7 @@ Use this comprehensive context to inform your decision. Ask clarifying questions
         return () => {
             cleanup();
         };
-    }, [isOpen, auth?.user?.id, vibes, sos, events]);
+    }, [isOpen, auth?.user?.id, vibes, sos, events, drawWaveform]);
 
     if (!isOpen) return null;
 

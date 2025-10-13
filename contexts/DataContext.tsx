@@ -138,14 +138,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   // --- Persistent Cache Hydration ---
   useEffect(() => {
-    // This runs once when the app loads to provide instant UI data.
     try {
       const briefingCacheRaw = localStorage.getItem(BRIEFING_CACHE_KEY);
       if (briefingCacheRaw) {
         const { data } = JSON.parse(briefingCacheRaw);
         if (data) setLiveBriefing(data);
       }
-
       const eventsCacheRaw = localStorage.getItem(EVENTS_CACHE_KEY);
       if (eventsCacheRaw) {
         const { data } = JSON.parse(eventsCacheRaw);
@@ -153,14 +151,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     } catch (e) {
       console.error("Failed to hydrate from persistent cache:", e);
-      // Clear potentially corrupted cache
       localStorage.removeItem(BRIEFING_CACHE_KEY);
       localStorage.removeItem(EVENTS_CACHE_KEY);
     }
   }, []);
 
-
-  // --- Data Fetching and Management ---
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -179,11 +174,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
   
-  // --- USER SETTINGS MANAGEMENT ---
   const fetchUserSettings = useCallback(async (userId: string) => {
     const { data, error } = await supabase.from('user_settings').select('settings').eq('user_id', userId).single();
     if (data && data.settings) {
-        // Deep merge with defaults to ensure all keys are present
         const mergedSettings = {
             ...DEFAULT_SETTINGS,
             ...data.settings,
@@ -192,7 +185,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             map: { ...DEFAULT_SETTINGS.map, ...data.settings.map },
         };
         setUserSettings(mergedSettings);
-    } else if (error && error.code !== 'PGRST116') { // Ignore "No rows found" error
+    } else if (error && error.code !== 'PGRST116') {
         console.error("Error fetching user settings:", error.message);
     }
   }, []);
@@ -215,8 +208,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [user, fetchUserSettings]);
 
-
-  // Effect to get user's location once
   useEffect(() => {
     if (!session) return;
     navigator.geolocation.getCurrentPosition(async (position) => {
@@ -299,12 +290,23 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             } catch (e) { console.warn("Could not parse structured weather line:", weatherLine); }
         }
 
-        const jsonStartIndex = rawText.indexOf('[');
-        const jsonEndIndex = rawText.lastIndexOf(']');
+        // FIX: Make JSON parsing more robust to handle markdown code blocks and other text.
+        let jsonString = rawText;
+        if (jsonString.includes('```json')) {
+            jsonString = jsonString.split('```json')[1];
+        }
+        if (jsonString.includes('```')) {
+            jsonString = jsonString.split('```')[0];
+        }
+        jsonString = jsonString.trim();
+        
+        const jsonStartIndex = jsonString.indexOf('[');
+        const jsonEndIndex = jsonString.lastIndexOf(']');
+
         if (jsonStartIndex !== -1 && jsonEndIndex > jsonStartIndex) {
-            const jsonString = rawText.substring(jsonStartIndex, jsonEndIndex + 1);
+            const finalJsonString = jsonString.substring(jsonStartIndex, jsonEndIndex + 1);
             try {
-                newsItems = JSON.parse(jsonString);
+                newsItems = JSON.parse(finalJsonString);
             } catch (e) { throw new Error("The AI returned a malformed news list."); }
         } else {
             throw new Error("The AI did not return a valid news list.");
@@ -376,7 +378,6 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.removeItem(EVENTS_CACHE_KEY);
   };
   
-  // --- Optimistic UI Functions ---
   const addLocalVibe = (vibe: Vibe) => setVibes(prev => [vibe, ...prev]);
   const addLocalSOS = (sosItem: SOS) => setSos(prev => [sosItem, ...prev]);
   const addLocalEvent = (event: Event) => setEvents(prev => [...prev, event].sort((a,b) => new Date(a.event_time).getTime() - new Date(b.event_time).getTime()));

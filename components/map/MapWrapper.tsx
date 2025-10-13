@@ -82,7 +82,7 @@ const MapWrapper: React.FC = () => {
   const isSettingEvent = reactRouterLocation.state?.settingEvent === true;
   const flyToLocation = reactRouterLocation.state?.flyToLocation;
 
-
+  const [isMapSized, setIsMapSized] = useState(false);
   const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
@@ -92,17 +92,14 @@ const MapWrapper: React.FC = () => {
   );
   const [summaryModalState, setSummaryModalState] = useState<SummaryModalState>({ isOpen: false, isLoading: false, summary: null, error: null });
   
-  // Set initial map view based on user settings
   useEffect(() => {
     setShowHeatmap(userSettings.map.defaultView === 'heatmap');
   }, [userSettings.map.defaultView]);
   
-  // --- Map Initialization Effect ---
-  // This effect runs only ONCE to create the map instance.
   useEffect(() => {
     if (mapContainerRef.current && !mapRef.current) {
       const map = L.map(mapContainerRef.current, {
-          center: [40.7128, -74.0060], // Default to NYC
+          center: [40.7128, -74.0060],
           zoom: 13,
       });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -114,14 +111,26 @@ const MapWrapper: React.FC = () => {
       markerClusterGroupRef.current = L.markerClusterGroup();
       
       map.locate({ setView: true, maxZoom: 16 });
+      
+      // FIX: Use ResizeObserver to definitively solve the IndexSizeError race condition.
+      const resizeObserver = new ResizeObserver(entries => {
+        for (const entry of entries) {
+          if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+            map.invalidateSize();
+            setIsMapSized(true);
+            resizeObserver.disconnect(); // We only need the initial sizing confirmation.
+          }
+        }
+      });
 
-      setTimeout(() => {
-        map.invalidateSize();
-      }, 0);
+      resizeObserver.observe(mapContainerRef.current);
+      
+      return () => {
+        resizeObserver.disconnect();
+      };
     }
   }, []);
 
-  // Effect for handling navigation from search results
   useEffect(() => {
     const map = mapRef.current;
     if (map && flyToLocation) {
@@ -130,21 +139,18 @@ const MapWrapper: React.FC = () => {
             duration: 1.5
         });
         
-        // Add a temporary pulsing marker to highlight the location
         const pulseIcon = L.divIcon({
             className: 'css-icon-pulse',
             html: '<div></div>',
             iconSize: [20, 20]
         });
         const marker = L.marker([flyToLocation.lat, flyToLocation.lng], { icon: pulseIcon }).addTo(map);
-        setTimeout(() => map.removeLayer(marker), 3000); // Remove after 3 seconds
+        setTimeout(() => map.removeLayer(marker), 3000);
         
-        // Clean up router state to prevent re-flying on refresh
         window.history.replaceState({}, document.title);
     }
   }, [flyToLocation]);
 
-  // --- Safe Zone Fetching Effect (User-specific data) ---
   useEffect(() => {
     if (!auth?.user) return;
     const fetchSafeZones = async () => {
@@ -158,7 +164,6 @@ const MapWrapper: React.FC = () => {
     };
     fetchSafeZones();
 
-    // Also subscribe to changes for this user's safe zones
     const subscription = supabase.channel(`safe-zones-user-${auth.user.id}`)
       .on('postgres_changes', 
           { event: '*', schema: 'public', table: 'safe_zones', filter: `user_id=eq.${auth.user.id}` },
@@ -168,17 +173,12 @@ const MapWrapper: React.FC = () => {
     return () => {
         supabase.removeChannel(subscription);
     }
-
   }, [auth?.user]);
 
-
-  // --- Data Rendering Effect (Refactored for Robustness) ---
-  // Re-renders all layers whenever data from context or heatmap visibility changes.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || dataLoading) return;
+    if (!map || dataLoading || !isMapSized) return;
 
-    // --- 1. CLEAN SLATE: Remove all previous data layers ---
     if (heatLayerRef.current) {
         map.removeLayer(heatLayerRef.current);
         heatLayerRef.current = null;
@@ -190,9 +190,6 @@ const MapWrapper: React.FC = () => {
     Object.values(safeZoneLayersRef.current).forEach(layer => map.removeLayer(layer));
     safeZoneLayersRef.current = {};
 
-    // --- 2. RE-RENDER: Add back the necessary layers ---
-
-    // Always render Safe Zones
     safeZones.forEach(zone => {
       const circle = L.circle([zone.location.lat, zone.location.lng], {
         radius: zone.radius_km * 1000,
@@ -209,29 +206,15 @@ const MapWrapper: React.FC = () => {
       };
       
       const filteredVibes = vibes.filter(vibe => heatmapFilters.has(vibe.vibe_type));
-
       const heatmapData = filteredVibes
           .map(v => [v.location.lat, v.location.lng, vibeIntensityMap[v.vibe_type]])
           .filter(v => v[2] > 0);
       
       if (heatmapData.length > 0) {
-          const drawHeatmap = () => {
-            // FIX: This function now reliably checks for a valid map size before drawing.
-            // Using requestAnimationFrame ensures this check runs after the browser has
-            // completed its layout and paint cycles.
-            map.invalidateSize();
-            const mapSize = map.getSize();
-            if (mapSize.x > 0 && mapSize.y > 0) {
-              heatLayerRef.current = L.heatLayer(heatmapData, {
-                  radius: 30, blur: 25, maxZoom: 17,
-                  gradient: { 0.2: '#34d399', 0.4: '#3b82f6', 0.6: '#f59e0b', 0.8: '#ef4444', 1.0: '#b91c1c' }
-              }).addTo(map);
-            } else {
-              console.warn("Map container still has zero size, will retry render. This can happen during initial load.");
-              requestAnimationFrame(drawHeatmap); // Retry on the next frame
-            }
-          };
-          requestAnimationFrame(drawHeatmap);
+          heatLayerRef.current = L.heatLayer(heatmapData, {
+              radius: 30, blur: 25, maxZoom: 17,
+              gradient: { 0.2: '#34d399', 0.4: '#3b82f6', 0.6: '#f59e0b', 0.8: '#ef4444', 1.0: '#b91c1c' }
+          }).addTo(map);
       }
     } else {
         const allMarkers = [];
@@ -242,7 +225,7 @@ const MapWrapper: React.FC = () => {
             if (v.vibe_type === VibeType.Dangerous) {
                 marker.on('click', () => {
                     if (window.confirm("This is a 'Dangerous' vibe report. Do you want to open the Live Assistant for immediate help?")) {
-                        navigate('/pulse'); // Navigate to the unified Pulse tab
+                        navigate('/pulse');
                     } else {
                         L.popup().setLatLng(marker.getLatLng()).setContent(popupContent).openOn(map);
                     }
@@ -259,7 +242,7 @@ const MapWrapper: React.FC = () => {
             
             marker.on('click', () => {
                 if (window.confirm("This is an SOS alert. Do you want to open the Live Assistant for immediate help?")) {
-                    navigate('/pulse'); // Navigate to the unified Pulse tab
+                    navigate('/pulse');
                 } else {
                     L.popup().setLatLng(marker.getLatLng()).setContent(popupContent).openOn(map);
                 }
@@ -278,14 +261,13 @@ const MapWrapper: React.FC = () => {
             map.addLayer(markerClusterGroupRef.current);
         }
     }
-  }, [vibes, sos, events, safeZones, showHeatmap, heatmapFilters, dataLoading, navigate]);
+  }, [vibes, sos, events, safeZones, showHeatmap, heatmapFilters, dataLoading, navigate, isMapSized]);
   
-  // --- Map Interaction Effect ---
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     
-    map.off('contextmenu').off('click'); // Clear old listeners
+    map.off('contextmenu').off('click');
 
     if (isSettingZone) {
       map.on('click', (e: any) => navigate('/profile', { state: { newZoneLocation: e.latlng } }));
@@ -346,7 +328,7 @@ const MapWrapper: React.FC = () => {
   const handleHeatmapEnableToggle = () => {
     setShowHeatmap(currentShowHeatmap => {
         const newShowHeatmap = !currentShowHeatmap;
-        if (!newShowHeatmap) { // if we are turning it off
+        if (!newShowHeatmap) {
             setIsFilterPanelOpen(false);
         }
         return newShowHeatmap;
@@ -366,7 +348,6 @@ const MapWrapper: React.FC = () => {
         </div>
       )}
 
-      {/* SOS Floating Action Button */}
       <div className="absolute bottom-24 right-4 z-[1000]">
           <button 
               onClick={() => setIsSosModalOpen(true)}
