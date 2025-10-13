@@ -121,7 +121,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { error } = await supabase.from('events').update({
           title: updatedEvent.title,
           description: updatedEvent.description,
-          event_time: updatedEvent.event_time
+          event_time: updatedEvent.event_time,
+          end_time: updatedEvent.end_time
       }).eq('id', updatedEvent.id);
       if (error) {
           console.error("Failed to update event:", error);
