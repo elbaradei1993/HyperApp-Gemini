@@ -6,7 +6,7 @@ const navItems = [
   { path: '/', label: 'Map', icon: LocationMarkerIcon },
   { path: '/events', label: 'Events', icon: GlobeAltIcon },
   { path: '/trending', label: 'Trending', icon: FireIcon },
-  { path: '/services', label: 'Services', icon: LightBulbIcon },
+  { path: '/services', label: 'Pulse', icon: LightBulbIcon },
   { path: '/profile', label: 'Profile', icon: UserIcon },
 ];
 

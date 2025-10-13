@@ -199,7 +199,7 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[2000] p-4" onClick={handleClose}>
-      <audio ref={audioRef} src="https://actions.google.com/sounds/v1/emergency/beeper_confirm.ogg" preload="auto" className="hidden" aria-hidden="true" />
+      <audio ref={audioRef} src="https://cdn.pixabay.com/audio/2022/03/15/audio_28b1b1ea0d.mp3" preload="auto" className="hidden" aria-hidden="true" />
       <div 
         className="bg-brand-secondary rounded-lg shadow-xl w-full max-w-md relative animate-fade-in-down border-2 border-red-500/50"
         onClick={e => e.stopPropagation()}
@@ -249,6 +249,12 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
                   <label htmlFor="details" className="block text-sm font-medium text-gray-300">
                       Briefly describe the situation:
                   </label>
+                  {isRecording && (
+                      <div className="flex items-center justify-center space-x-2 p-2 bg-brand-primary rounded-md">
+                        <MicrophoneIcon className="w-6 h-6 text-yellow-400 animate-pulse" />
+                        <span className="text-sm text-gray-300 font-medium">Listening...</span>
+                      </div>
+                  )}
                   <textarea 
                       id="details"
                       rows={4}
@@ -265,7 +271,7 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
                   disabled={!isSpeechRecognitionSupported || isSubmitting || isPreparing}
                   className={`w-full flex items-center justify-center space-x-2 font-semibold py-2 px-4 rounded-md transition-colors disabled:opacity-50
                     ${isRecording 
-                      ? 'bg-yellow-600 hover:bg-yellow-700 text-white ring-4 ring-yellow-500/50 animate-pulse' 
+                      ? 'bg-yellow-600 hover:bg-yellow-700 text-white' 
                       : 'bg-gray-600 hover:bg-gray-500 text-white'
                     }`
                   }

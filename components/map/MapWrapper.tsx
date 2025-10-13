@@ -210,7 +210,7 @@ const MapWrapper: React.FC = () => {
           .filter(v => v[2] > 0);
       
       if (heatmapData.length > 0) {
-          // DEFINITIVE FIX: Force Leaflet to re-measure its container size
+          // Force Leaflet to re-measure its container size
           // immediately before we attempt to draw. This guarantees the size
           // check is not using stale data and prevents the race condition crash.
           map.invalidateSize();

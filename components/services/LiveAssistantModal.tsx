@@ -3,7 +3,8 @@ import { GoogleGenAI, LiveServerMessage, Modality, Blob, FunctionDeclaration, Ty
 import { decode, decodeAudioData, encode } from '../../utils/audio';
 import { supabase } from '../../services/supabaseClient';
 import { AuthContext } from '../../contexts/AuthContext';
-import { Vibe, VibeType, Location } from '../../types';
+import { useData } from '../../contexts/DataContext';
+import { Vibe, VibeType, Location, SOS, Event } from '../../types';
 import { haversineDistance } from '../../utils/geolocation';
 
 interface LiveAssistantModalProps {
@@ -27,6 +28,7 @@ interface LiveSession {
 const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose }) => {
     const [status, setStatus] = useState('Initializing...');
     const [transcription, setTranscription] = useState<TranscriptionEntry[]>([]);
+    const { vibes, sos, events } = useData();
     const auth = useContext(AuthContext);
 
     const sessionPromiseRef = useRef<Promise<LiveSession> | null>(null);
@@ -174,26 +176,39 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
                     console.warn("Could not get user's location for AI context:", locationError.message);
                 }
                 
-                setStatus('Analyzing Vibe Data...');
+                setStatus('Analyzing Area Data...');
+                // --- CONTEXT BUILDING START ---
                 let vibeContext = 'No recent community vibe data is available for this area.';
+                let sosContext = 'No recent SOS alerts have been reported in this area.';
+                let eventContext = 'No community events are happening nearby.';
                 let initialGreeting = 'Hello! I am your live emergency assistant. How can I help you?';
 
                 if (userLocation) {
-                    // FIX: Use the efficient RPC call instead of fetching the entire table.
-                    const { data: nearbyVibes, error: rpcError } = await supabase.rpc('get_nearby_vibes', {
-                        user_lat: userLocation.latitude,
-                        user_lng: userLocation.longitude,
-                        radius_km: 1
-                    });
+                    const userLatLng = { lat: userLocation.latitude, lng: userLocation.longitude };
 
-                    if (rpcError) {
-                        console.warn("Could not fetch nearby vibes for AI context:", rpcError.message);
-                    } else if (nearbyVibes && nearbyVibes.length > 0) {
-                         const vibeDisplayNameMapping: Record<string, string> = {
+                    // Filter data from global context to find nearby items
+                    const nearbyVibes = vibes
+                        .filter(vibe => haversineDistance(userLatLng, vibe.location) <= 1)
+                        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                    
+                    const nearbySOS = sos
+                        .filter(s => haversineDistance(userLatLng, s.location) <= 1)
+                        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                        
+                    const now = new Date();
+                    const nearbyEvents = events
+                        .filter(e => {
+                            const eventEndDate = e.end_time ? new Date(e.end_time) : new Date(new Date(e.event_time).getTime() + 2 * 60 * 60 * 1000); // Default 2h duration
+                            return eventEndDate >= now && haversineDistance(userLatLng, e.location) <= 1;
+                        })
+                        .sort((a, b) => new Date(a.event_time).getTime() - new Date(b.event_time).getTime());
+
+                    // Build Vibe Context
+                    if (nearbyVibes.length > 0) {
+                        const vibeDisplayNameMapping: Record<string, string> = {
                             [VibeType.Safe]: 'Safe', [VibeType.Calm]: 'Calm', [VibeType.Noisy]: 'Noisy', [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly', [VibeType.Suspicious]: 'Suspicious', [VibeType.Dangerous]: 'Dangerous',
                         };
-                        
-                        const vibeCounts = (nearbyVibes as Vibe[]).reduce((acc: any, vibe: Vibe) => {
+                        const vibeCounts = nearbyVibes.reduce((acc: any, vibe: Vibe) => {
                             acc[vibe.vibe_type] = (acc[vibe.vibe_type] || 0) + 1;
                             return acc;
                         }, {});
@@ -209,7 +224,18 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
 
                         vibeContext = `The area has ${totalVibes} recent report(s). Breakdown: ${breakdownText}.`;
                     }
+
+                    // Build SOS Context
+                    if (nearbySOS.length > 0) {
+                        sosContext = `There are ${nearbySOS.length} recent SOS alert(s) nearby. The latest one reports: "${nearbySOS[0].details}".`;
+                    }
+
+                    // Build Event Context
+                    if (nearbyEvents.length > 0) {
+                        eventContext = `There is an upcoming community event nearby: "${nearbyEvents[0].title}". This may cause crowds or noise.`;
+                    }
                 }
+                // --- CONTEXT BUILDING END ---
                 
                 setStatus('Connecting...');
                 inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
@@ -225,8 +251,10 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
 --- CONTEXT ---
 - User's Approximate Location: ${userAddress}
 - Local Community Vibe: ${vibeContext}
+- Nearby SOS Alerts: ${sosContext}
+- Nearby Events: ${eventContext}
 --- END CONTEXT ---
-Use this context to inform your decision. Ask clarifying questions before dispatching.`,
+Use this comprehensive context to inform your decision. Ask clarifying questions before dispatching if the situation is ambiguous.`,
                         properties: {
                             details: { type: Type.STRING, description: 'A brief, clear description of the emergency situation, as stated by the user.' },
                         },
@@ -373,7 +401,7 @@ Use this context to inform your decision. Ask clarifying questions before dispat
         return () => {
             cleanup();
         };
-    }, [isOpen, auth?.user?.id]);
+    }, [isOpen, auth?.user?.id, vibes, sos, events]);
 
     if (!isOpen) return null;
 

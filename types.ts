@@ -50,6 +50,15 @@ export interface Event extends BaseRecord {
   attendee_count?: number;
 }
 
+// New type for AI-discovered events
+export interface AiEvent {
+  eventName: string;
+  description: string;
+  date: string;
+  locationString: string;
+  sourceURL: string;
+}
+
 export interface EventAttendee {
     id: number;
     event_id: number;
