@@ -164,7 +164,7 @@ const Account: React.FC = () => {
   return (
     <div className="p-4 space-y-8">
       <div>
-        <h1 className="text-3_xl font-bold">Account</h1>
+        <h1 className="text-3xl font-bold">Account</h1>
         <p className="text-gray-400">Manage your profile and settings.</p>
       </div>
       

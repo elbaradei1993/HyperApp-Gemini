@@ -38,11 +38,62 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
     const outputSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
     const nextStartTimeRef = useRef(0);
     
+    // Refs for waveform visualization
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const analyserRef = useRef<AnalyserNode | null>(null);
+    const animationFrameIdRef = useRef<number | null>(null);
+    
     // Using refs for transcription parts to avoid stale state in callbacks
     const currentInputTranscriptionRef = useRef('');
     const currentOutputTranscriptionRef = useRef('');
 
+    const drawWaveform = () => {
+        if (!analyserRef.current || !canvasRef.current) return;
+
+        animationFrameIdRef.current = requestAnimationFrame(drawWaveform);
+
+        const analyser = analyserRef.current;
+        const canvas = canvasRef.current;
+        const canvasCtx = canvas.getContext('2d');
+        
+        // FIX: Add guards to prevent drawing on a zero-sized or context-less canvas.
+        // This prevents the IndexSizeError if the canvas isn't fully rendered yet.
+        if (!canvasCtx || canvas.width === 0 || canvas.height === 0) {
+            return;
+        }
+
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        analyser.getByteTimeDomainData(dataArray);
+
+        canvasCtx.fillStyle = 'rgb(26, 32, 44)'; // bg-brand-primary
+        canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+        canvasCtx.lineWidth = 2;
+        canvasCtx.strokeStyle = 'rgb(66, 153, 225)'; // brand-accent
+        canvasCtx.beginPath();
+
+        const sliceWidth = (canvas.width * 1.0) / bufferLength;
+        let x = 0;
+        for (let i = 0; i < bufferLength; i++) {
+            const v = dataArray[i] / 128.0;
+            const y = (v * canvas.height) / 2;
+            if (i === 0) {
+                canvasCtx.moveTo(x, y);
+            } else {
+                canvasCtx.lineTo(x, y);
+            }
+            x += sliceWidth;
+        }
+        canvasCtx.lineTo(canvas.width, canvas.height / 2);
+        canvasCtx.stroke();
+    };
+
     const cleanup = () => {
+        if (animationFrameIdRef.current) {
+            cancelAnimationFrame(animationFrameIdRef.current);
+            animationFrameIdRef.current = null;
+        }
+
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
             streamRef.current = null;
@@ -56,6 +107,11 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
             scriptProcessorRef.current.onaudioprocess = null;
             scriptProcessorRef.current = null;
         }
+        if (analyserRef.current) {
+            analyserRef.current.disconnect();
+            analyserRef.current = null;
+        }
+
         if (inputAudioContextRef.current && inputAudioContextRef.current.state !== 'closed') {
             inputAudioContextRef.current.close();
         }
@@ -188,6 +244,16 @@ Use this context to inform your decision. Ask clarifying questions before dispat
                             const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(4096, 1, 1);
                             scriptProcessorRef.current = scriptProcessor;
 
+                            const analyser = inputAudioContextRef.current!.createAnalyser();
+                            analyser.fftSize = 2048;
+                            analyserRef.current = analyser;
+
+                            source.connect(analyser);
+                            analyser.connect(scriptProcessor);
+                            scriptProcessor.connect(inputAudioContextRef.current!.destination);
+                            
+                            drawWaveform();
+
                             scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
                                 const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
                                 const pcmBlob: Blob = {
@@ -198,8 +264,6 @@ Use this context to inform your decision. Ask clarifying questions before dispat
                                     session.sendRealtimeInput({ media: pcmBlob });
                                 });
                             };
-                            source.connect(scriptProcessor);
-                            scriptProcessor.connect(inputAudioContextRef.current!.destination);
                         },
                         onmessage: async (message: LiveServerMessage) => {
                            if (message.serverContent?.inputTranscription) {
@@ -294,10 +358,13 @@ Use this context to inform your decision. Ask clarifying questions before dispat
 
             } catch (err: any) {
                 console.error("Failed to start session:", err);
-                setStatus(`Error: ${err.message}`);
-                if (err.name === 'NotAllowedError') {
-                    setStatus('Error: Microphone permission denied.');
+                let friendlyError = `Error: ${err.message}`;
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    friendlyError = 'Error: Microphone permission denied. Please enable it in your browser settings.';
+                } else if (err.name === 'NotFoundError') {
+                     friendlyError = 'Error: No microphone found. Please connect a microphone and try again.';
                 }
+                setStatus(friendlyError);
             }
         };
 
@@ -337,12 +404,15 @@ Use this context to inform your decision. Ask clarifying questions before dispat
                     </div>
                  )}
             </div>
-            <button
-                onClick={handleClose}
-                className="w-full mt-4 bg-red-600 text-white font-bold py-3 px-4 rounded-md hover:bg-red-700 transition-colors"
-            >
-                End Session
-            </button>
+            <div className="flex-shrink-0 pt-4 bg-brand-primary">
+                 <canvas ref={canvasRef} width="600" height="80" className="w-full h-16 rounded-md bg-brand-primary"></canvas>
+                <button
+                    onClick={handleClose}
+                    className="w-full mt-2 bg-red-600 text-white font-bold py-3 px-4 rounded-md hover:bg-red-700 transition-colors"
+                >
+                    End Session
+                </button>
+            </div>
         </div>
     );
 };

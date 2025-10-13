@@ -35,6 +35,7 @@ interface DataContextType {
   loading: boolean;
   error: string | null;
   addLocalVibe: (vibe: Vibe) => void;
+  addLocalSOS: (sos: SOS) => void;
   addLocalEvent: (event: Event) => void;
   updateEvent: (event: Event) => Promise<void>;
   deleteEvent: (eventId: number) => Promise<void>;
@@ -102,6 +103,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   
   // Optimistic UI update functions
   const addLocalVibe = (vibe: Vibe) => setVibes(prev => [vibe, ...prev]);
+  const addLocalSOS = (sosItem: SOS) => setSos(prev => [sosItem, ...prev]);
   const addLocalEvent = (event: Event) => setEvents(prev => [...prev, event].sort((a,b) => new Date(a.event_time).getTime() - new Date(b.event_time).getTime()));
   
   // Robust optimistic update/delete functions
@@ -176,6 +178,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     loading,
     error,
     addLocalVibe,
+    addLocalSOS,
     addLocalEvent,
     updateEvent,
     deleteEvent,

@@ -5,8 +5,9 @@ import { AuthContext } from '../../contexts/AuthContext';
 import { useData } from '../../contexts/DataContext';
 import type { SafeZone, Location } from '../../types';
 import { VibeType } from '../../types';
-import { FireIcon } from '../ui/Icons';
+import { FireIcon, ExclamationTriangleIcon } from '../ui/Icons';
 import AreaSummaryModal from './AreaSummaryModal';
+import SOSModal from '../sos/SOSModal';
 import { haversineDistance } from '../../utils/geolocation';
 
 // This tells TypeScript that the Leaflet library (L) is available globally
@@ -85,6 +86,7 @@ const MapWrapper: React.FC = () => {
   const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
+  const [isSosModalOpen, setIsSosModalOpen] = useState(false);
   const [heatmapFilters, setHeatmapFilters] = useState<Set<VibeType>>(
     new Set(Object.values(VibeType))
   );
@@ -358,6 +360,18 @@ const MapWrapper: React.FC = () => {
           }
         </div>
       )}
+
+      {/* SOS Floating Action Button */}
+      <div className="absolute bottom-24 right-4 z-[1000]">
+          <button 
+              onClick={() => setIsSosModalOpen(true)}
+              className="bg-red-600 text-white rounded-full p-4 shadow-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-brand-primary focus:ring-red-500 transform transition-transform hover:scale-110"
+              aria-label="Send SOS Alert"
+          >
+              <ExclamationTriangleIcon className="w-8 h-8" />
+          </button>
+      </div>
+
       <div ref={mapContainerRef} className={`absolute inset-0 z-0 ${currentMode !== 'none' ? 'cursor-crosshair' : ''}`} />
       <style>{`
         .css-icon-pulse {
@@ -437,6 +451,7 @@ const MapWrapper: React.FC = () => {
       )}
 
       <AreaSummaryModal {...summaryModalState} onClose={() => setSummaryModalState({ isOpen: false, isLoading: false, summary: null, error: null })} />
+      <SOSModal isOpen={isSosModalOpen} onClose={() => setIsSosModalOpen(false)} />
     </div>
   );
 };
