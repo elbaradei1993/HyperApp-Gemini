@@ -1,12 +1,12 @@
 import React, { useContext } from 'react';
-import { HashRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, AuthContext } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
 
 import Layout from './components/layout/Layout';
 import Home from './pages/Home';
 import Login from './pages/Login';
-import Trending from './pages/Trending';
+import Activity from './pages/Activity';
 import Services from './pages/Services';
 import Events from './pages/Events';
 import CreateEvent from './pages/CreateEvent';
@@ -18,7 +18,9 @@ const PrivateRoutes: React.FC = () => {
   if (auth?.loading) {
     return <div className="h-screen w-screen flex items-center justify-center bg-brand-primary text-white">Loading Session...</div>;
   }
-  return auth?.session ? <Outlet /> : <Navigate to="/login" replace />;
+  // If authenticated, render the Layout which contains an <Outlet> for the nested page routes.
+  // Otherwise, redirect to the login page.
+  return auth?.session ? <Layout /> : <Navigate to="/login" replace />;
 };
 
 const AppRoutes: React.FC = () => {
@@ -27,18 +29,21 @@ const AppRoutes: React.FC = () => {
             <Routes>
                 <Route path="/login" element={<Login />} />
                 
+                {/* 
+                  The redundant nested Route has been removed. PrivateRoutes now acts as the single
+                  layout component for all protected routes. It handles authentication and renders the 
+                  main `Layout`, which in turn uses its `<Outlet>` to render the specific page component 
+                  (e.g., Home, Trending). This simplifies the routing hierarchy and resolves the error.
+                */}
                 <Route element={<PrivateRoutes />}>
-                    {/* FIX: The Layout component already contains an <Outlet> for rendering child routes and does not accept children. */}
-                    <Route element={<Layout />}>
-                        <Route path="/" element={<Home />} />
-                        <Route path="/trending" element={<Trending />} />
-                        <Route path="/services" element={<Services />} />
-                        <Route path="/events" element={<Events />} />
-                        <Route path="/create-event" element={<CreateEvent />} />
-                        <Route path="/edit-event/:id" element={<EditEvent />} />
-                        <Route path="/profile" element={<Account />} />
-                        <Route path="*" element={<Navigate to="/" replace />} />
-                   </Route>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/trending" element={<Activity />} />
+                    <Route path="/services" element={<Services />} />
+                    <Route path="/events" element={<Events />} />
+                    <Route path="/create-event" element={<CreateEvent />} />
+                    <Route path="/edit-event/:id" element={<EditEvent />} />
+                    <Route path="/profile" element={<Account />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
                 </Route>
             </Routes>
         </Router>

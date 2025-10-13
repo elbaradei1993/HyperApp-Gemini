@@ -3,54 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { AuthContext } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
-import { Profile, SafeZone, Location, Vibe, SOS, Event as CommunityEvent, VibeType } from '../types';
-import { TrashIcon, PlusCircleIcon, LocationMarkerIcon, FireIcon, BellAlertIcon, GlobeAltIcon } from '../components/ui/Icons';
+import { Profile, SafeZone, Location } from '../types';
+import { TrashIcon, PlusCircleIcon, LocationMarkerIcon } from '../components/ui/Icons';
 import { useLocation as useReactRouterLocation } from 'react-router-dom';
-import { timeAgo } from '../utils/time';
-
-// --- Reusable Activity Card Components (from former Activity.tsx) ---
-type ActivityItem =
-  | (Vibe & { itemType: 'vibe' })
-  | (SOS & { itemType: 'sos' })
-  | (CommunityEvent & { itemType: 'event' });
-
-const VIBE_DISPLAY_NAMES: Record<string, string> = {
-    [VibeType.Safe]: 'Safe', [VibeType.Calm]: 'Calm', [VibeType.Noisy]: 'Noisy',
-    [VibeType.LGBTQIAFriendly]: 'LGBTQIA+ Friendly', [VibeType.Suspicious]: 'Suspicious', [VibeType.Dangerous]: 'Dangerous',
-};
-
-const ActivityCard: React.FC<{ item: ActivityItem }> = ({ item }) => {
-    let icon, title, details;
-
-    switch (item.itemType) {
-        case 'vibe':
-            icon = <FireIcon className="w-6 h-6 text-orange-400" />;
-            title = `New Vibe: ${VIBE_DISPLAY_NAMES[item.vibe_type] || 'Unknown'}`;
-            details = `Reported by ${item.profiles?.username || 'anonymous'}`;
-            break;
-        case 'sos':
-            icon = <BellAlertIcon className="w-6 h-6 text-red-400" />;
-            title = `SOS Alert`;
-            details = `${item.details ? `"${item.details}" - ` : ''}from ${item.profiles?.username || 'anonymous'}`;
-            break;
-        case 'event':
-            icon = <GlobeAltIcon className="w-6 h-6 text-blue-400" />;
-            title = `New Event: ${item.title}`;
-            details = `Created by ${item.profiles?.username || 'anonymous'}`;
-            break;
-    }
-
-    return (
-        <div className="bg-gray-800 p-4 rounded-lg flex items-start space-x-4">
-            <div className="flex-shrink-0">{icon}</div>
-            <div className="flex-grow">
-                <p className="font-semibold text-white">{title}</p>
-                <p className="text-sm text-gray-400">{details}</p>
-            </div>
-            <div className="flex-shrink-0 text-xs text-gray-500">{timeAgo(item.created_at)}</div>
-        </div>
-    );
-};
+import { ActivityCard, ActivityItem } from '../components/activity/ActivityCard';
 
 
 const Account: React.FC = () => {
