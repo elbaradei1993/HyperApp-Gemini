@@ -4,7 +4,7 @@ import { useData } from '../contexts/DataContext';
 import { VibeType, NewsItem, WeatherInfo } from '../types';
 import { LocationMarkerIcon, LightBulbIcon, MicrophoneIcon, SunIcon, CloudIcon, CloudRainIcon, BoltIcon, SnowflakeIcon } from '../components/ui/Icons';
 import { getNearbyPlacesList } from '../services/osmApiService';
-import { haversineDistance } from '../utils/geolocation';
+import { haversineDistance } from '../../utils/geolocation';
 import { GoogleGenAI } from '@google/genai';
 import LiveAssistantModal from '../components/services/LiveAssistantModal';
 
@@ -59,8 +59,18 @@ const NewsDetailsModal: React.FC<{ item: NewsItem | null; onClose: () => void }>
                 <div className="max-h-[50vh] overflow-y-auto pr-2 space-y-4">
                     <p className="text-gray-300 whitespace-pre-wrap">{item.summary}</p>
                 </div>
-                <div className="mt-6">
-                    <button onClick={onClose} className="w-full bg-gray-600 text-white font-bold py-2 px-4 rounded-md">Close</button>
+                <div className="mt-6 flex space-x-2">
+                    <button onClick={onClose} className="flex-1 bg-gray-600 text-white font-bold py-2 px-4 rounded-md hover:bg-gray-500">Close</button>
+                    {item.sourceURL && (
+                      <a 
+                          href={item.sourceURL} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="flex-1 text-center bg-brand-accent text-white font-bold py-2 px-4 rounded-md hover:bg-blue-600"
+                      >
+                          Read Full Story
+                      </a>
+                    )}
                 </div>
             </div>
         </div>
@@ -97,8 +107,21 @@ const Pulse: React.FC = () => {
   useEffect(() => {
     const fetchAndSetNearbyPlaces = async () => {
         if (currentLocation) {
-            const places = await getNearbyPlacesList(currentLocation, 500);
-            setNearbyPlaces(places);
+            try {
+                // FIX: Add a timeout to the non-critical nearby places API call.
+                // This prevents a slow third-party service from blocking the UI.
+                const timeoutPromise = new Promise<string[]>((_, reject) => 
+                    setTimeout(() => reject(new Error('Overpass API call timed out')), 8000) // 8 second timeout
+                );
+                const places = await Promise.race([
+                    getNearbyPlacesList(currentLocation, 500),
+                    timeoutPromise
+                ]);
+                setNearbyPlaces(places);
+            } catch (error: any) {
+                console.warn("Could not fetch nearby places:", error.message);
+                setNearbyPlaces([]); // Proceed with an empty array on timeout/failure
+            }
         }
     };
     fetchAndSetNearbyPlaces();

@@ -26,7 +26,7 @@ const processRecord = <T extends { location: any }>(record: T): T | null => {
 
 const reconstructAiEvents = (data: any): AiEvent[] | null => {
     if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
-    const keys = ["eventName", "description", "date", "locationString"];
+    const keys = ["eventName", "description", "date", "locationString", "sourceURL"];
     const firstKey = keys[0];
     if (!data[firstKey] || !Array.isArray(data[firstKey])) return null;
 
@@ -102,8 +102,12 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
+// --- Caching Configuration ---
 const BRIEFING_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const EVENTS_CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
+const BRIEFING_CACHE_KEY = 'hyperapp-briefing-cache';
+const EVENTS_CACHE_KEY = 'hyperapp-events-cache';
+
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { session, user } = useContext(AuthContext) || {};
@@ -122,21 +126,41 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Cached AI data
   const [liveBriefing, setLiveBriefing] = useState<LiveBriefing | null>(null);
-  const [liveBriefingTimestamp, setLiveBriefingTimestamp] = useState<number | null>(null);
   const [liveBriefingLoading, setLiveBriefingLoading] = useState(false);
   const [liveBriefingError, setLiveBriefingError] = useState<string | null>(null);
 
   const [aiEvents, setAiEvents] = useState<AiEvent[]>([]);
-  const [aiEventsTimestamp, setAiEventsTimestamp] = useState<number | null>(null);
   const [aiEventsLoading, setAiEventsLoading] = useState(false);
   const [aiEventsError, setAiEventsError] = useState<string | null>(null);
   
   // User settings
   const [userSettings, setUserSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
+  
+  // --- Persistent Cache Hydration ---
+  useEffect(() => {
+    // This runs once when the app loads to provide instant UI data.
+    try {
+      const briefingCacheRaw = localStorage.getItem(BRIEFING_CACHE_KEY);
+      if (briefingCacheRaw) {
+        const { data } = JSON.parse(briefingCacheRaw);
+        if (data) setLiveBriefing(data);
+      }
+
+      const eventsCacheRaw = localStorage.getItem(EVENTS_CACHE_KEY);
+      if (eventsCacheRaw) {
+        const { data } = JSON.parse(eventsCacheRaw);
+        if (data) setAiEvents(data);
+      }
+    } catch (e) {
+      console.error("Failed to hydrate from persistent cache:", e);
+      // Clear potentially corrupted cache
+      localStorage.removeItem(BRIEFING_CACHE_KEY);
+      localStorage.removeItem(EVENTS_CACHE_KEY);
+    }
+  }, []);
 
 
   // --- Data Fetching and Management ---
-
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -229,10 +253,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [fetchData]);
   
   const fetchLiveBriefing = useCallback(async (forceRefresh = false) => {
-    const isCacheValid = !forceRefresh && liveBriefingTimestamp && (Date.now() - liveBriefingTimestamp < BRIEFING_CACHE_DURATION);
+    const cacheRaw = localStorage.getItem(BRIEFING_CACHE_KEY);
+    const cachedTimestamp = cacheRaw ? JSON.parse(cacheRaw).timestamp : 0;
+    const isCacheValid = !forceRefresh && cachedTimestamp && (Date.now() - cachedTimestamp < BRIEFING_CACHE_DURATION);
+    
     if (isCacheValid || liveBriefingLoading) return;
     if (!currentLocation) {
-        setLiveBriefingError("Cannot fetch briefing without user location.");
+        if (!liveBriefing) setLiveBriefingError("Cannot fetch briefing without user location.");
         return;
     }
     setLiveBriefingLoading(true);
@@ -252,7 +279,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const timeOfDay = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
         const prompt = `Act as a local safety reporter for ${city}, ${country} at ${timeOfDay}.
 1. Your first line MUST be a weather report prefixed with "WEATHER: ". The format MUST be a JSON-like string: {"temperature": "15°C", "condition": "Cloudy", "icon_keyword": "cloudy"}. The icon_keyword must be one of: sunny, cloudy, rainy, stormy, snowy.
-2. After the weather line, you MUST provide a valid JSON array of 3-5 objects. Each object represents a significant trending news item and MUST have these exact keys: "headline" and "summary" (a concise single sentence). The news should include major local, national, or political stories relevant to the area.`;
+2. After the weather line, you MUST provide a valid JSON array of 3-5 objects. Each object represents a significant trending news item and MUST have these exact keys: "headline", "summary", and "sourceURL". The sourceURL MUST be the direct URL to the original article.`;
         
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash', contents: prompt,
@@ -282,21 +309,26 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         } else {
             throw new Error("The AI did not return a valid news list.");
         }
-
-        setLiveBriefing({ news: newsItems, weather: weatherData });
-        setLiveBriefingTimestamp(Date.now());
+        
+        const newBriefing = { news: newsItems, weather: weatherData };
+        setLiveBriefing(newBriefing);
+        localStorage.setItem(BRIEFING_CACHE_KEY, JSON.stringify({ data: newBriefing, timestamp: Date.now() }));
+        
     } catch (err: any) {
         setLiveBriefingError(`Failed to generate briefing: ${err.message}`);
     } finally {
         setLiveBriefingLoading(false);
     }
-  }, [currentLocation, liveBriefingTimestamp, liveBriefingLoading]);
+  }, [currentLocation, liveBriefingLoading, liveBriefing]);
 
   const fetchAiEvents = useCallback(async (forceRefresh = false) => {
-    const isCacheValid = !forceRefresh && aiEventsTimestamp && (Date.now() - aiEventsTimestamp < EVENTS_CACHE_DURATION);
+    const cacheRaw = localStorage.getItem(EVENTS_CACHE_KEY);
+    const cachedTimestamp = cacheRaw ? JSON.parse(cacheRaw).timestamp : 0;
+    const isCacheValid = !forceRefresh && cachedTimestamp && (Date.now() - cachedTimestamp < EVENTS_CACHE_DURATION);
+
     if (isCacheValid || aiEventsLoading) return;
     if (!currentLocation) {
-        setAiEventsError("Cannot fetch events without user location.");
+        if (aiEvents.length === 0) setAiEventsError("Cannot fetch events without user location.");
         return;
     }
     setAiEventsLoading(true);
@@ -313,7 +345,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const apiKey = process.env.API_KEY;
         if (!apiKey) throw new Error("API key not configured.");
         const ai = new GoogleGenAI({ apiKey });
-        const prompt = `Find a maximum of 20 public, community-focused events in ${locationQuery} happening in the next 7 days. You MUST respond with ONLY a valid JSON array of objects, like this: [{"eventName": "Event Name", "description": "A cool event", "date": "YYYY-MM-DD", "locationString": "123 Main St"}]. If none, return an empty array [].`;
+        const prompt = `Find a maximum of 20 public, community-focused events in ${locationQuery} happening in the next 7 days. You MUST respond with ONLY a valid JSON array of objects, like this: [{"eventName": "Event Name", "description": "A cool event", "date": "YYYY-MM-DD", "locationString": "123 Main St", "sourceURL": "https://example.com/event"}]. You MUST include the sourceURL for every event. If none, return an empty array [].`;
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash', contents: prompt,
@@ -325,7 +357,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         let eventsArray = Array.isArray(parsedData) ? parsedData : reconstructAiEvents(parsedData);
         if (eventsArray) {
             setAiEvents(eventsArray);
-            setAiEventsTimestamp(Date.now());
+            localStorage.setItem(EVENTS_CACHE_KEY, JSON.stringify({ data: eventsArray, timestamp: Date.now() }));
             if (eventsArray.length === 0) setAiEventsError("No community events were found in your area.");
         } else {
             throw new Error("Response was not a valid or reconstructible event list.");
@@ -335,13 +367,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
         setAiEventsLoading(false);
     }
-  }, [currentLocation, aiEventsTimestamp, aiEventsLoading]);
+  }, [currentLocation, aiEventsLoading, aiEvents]);
   
   const clearAiCache = () => {
     setLiveBriefing(null);
-    setLiveBriefingTimestamp(null);
     setAiEvents([]);
-    setAiEventsTimestamp(null);
+    localStorage.removeItem(BRIEFING_CACHE_KEY);
+    localStorage.removeItem(EVENTS_CACHE_KEY);
   };
   
   // --- Optimistic UI Functions ---

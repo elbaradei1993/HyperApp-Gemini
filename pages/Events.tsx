@@ -93,16 +93,30 @@ const EventCard: React.FC<EventCardProps> = ({ event, currentUserId, isAttending
 
 const AiEventCard: React.FC<{ event: AiEvent }> = ({ event }) => {
     return (
-        <div className="bg-brand-secondary/50 border border-gray-700 p-4 rounded-lg space-y-3">
-             <div>
-                <h3 className="text-lg font-bold">{event.eventName}</h3>
-                <p className="text-xs text-purple-300">Discovered Event</p>
+        <div className="bg-brand-secondary/50 border border-gray-700 p-4 rounded-lg space-y-3 flex flex-col justify-between">
+             <div className="space-y-3">
+                <div>
+                    <h3 className="text-lg font-bold">{event.eventName}</h3>
+                    <p className="text-xs text-purple-300">Discovered Event</p>
+                </div>
+                <p className="text-sm text-gray-300">{event.description}</p>
+                <div>
+                    <p className="font-semibold text-brand-accent">{event.date}</p>
+                    <p className="text-sm text-gray-400">{event.locationString}</p>
+                </div>
             </div>
-            <p className="text-sm text-gray-300">{event.description}</p>
-            <div>
-                <p className="font-semibold text-brand-accent">{event.date}</p>
-                <p className="text-sm text-gray-400">{event.locationString}</p>
-            </div>
+            {event.sourceURL && (
+                 <div className="pt-3 border-t border-gray-700 mt-3">
+                    <a 
+                        href={event.sourceURL} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="block w-full text-center bg-gray-600 text-white font-bold py-2 px-4 rounded-md hover:bg-gray-500 text-sm"
+                    >
+                        More details
+                    </a>
+                </div>
+            )}
         </div>
     );
 };

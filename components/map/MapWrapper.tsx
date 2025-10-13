@@ -215,19 +215,23 @@ const MapWrapper: React.FC = () => {
           .filter(v => v[2] > 0);
       
       if (heatmapData.length > 0) {
-          // REINFORCED FIX: Force Leaflet to re-measure its container size
-          // and check dimensions immediately before drawing to prevent race condition crashes.
-          map.invalidateSize();
-          const mapSize = map.getSize();
-          
-          if (mapSize.x > 0 && mapSize.y > 0) {
+          const drawHeatmap = () => {
+            // FIX: This function now reliably checks for a valid map size before drawing.
+            // Using requestAnimationFrame ensures this check runs after the browser has
+            // completed its layout and paint cycles.
+            map.invalidateSize();
+            const mapSize = map.getSize();
+            if (mapSize.x > 0 && mapSize.y > 0) {
               heatLayerRef.current = L.heatLayer(heatmapData, {
                   radius: 30, blur: 25, maxZoom: 17,
                   gradient: { 0.2: '#34d399', 0.4: '#3b82f6', 0.6: '#f59e0b', 0.8: '#ef4444', 1.0: '#b91c1c' }
               }).addTo(map);
-          } else {
-              console.warn("Map container has zero size, skipping heatmap render to prevent crash.");
-          }
+            } else {
+              console.warn("Map container still has zero size, will retry render. This can happen during initial load.");
+              requestAnimationFrame(drawHeatmap); // Retry on the next frame
+            }
+          };
+          requestAnimationFrame(drawHeatmap);
       }
     } else {
         const allMarkers = [];

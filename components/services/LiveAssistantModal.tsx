@@ -58,9 +58,9 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
         const canvas = canvasRef.current;
         const canvasCtx = canvas.getContext('2d');
         
-        // FIX: Add guards to prevent drawing on a zero-sized or context-less canvas.
-        // This prevents the IndexSizeError if the canvas isn't fully rendered yet.
-        if (!canvasCtx || canvas.width === 0 || canvas.height === 0) {
+        // FIX: Add a robust guard including `isConnected` to prevent drawing if the
+        // canvas is detached from the DOM, which would cause an IndexSizeError.
+        if (!canvasCtx || !canvas.isConnected || canvas.width === 0 || canvas.height === 0) {
             return;
         }
 

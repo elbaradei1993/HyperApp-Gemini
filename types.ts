@@ -56,6 +56,7 @@ export interface AiEvent {
   description: string;
   date: string;
   locationString: string;
+  sourceURL: string;
 }
 
 // --- New types for cached AI data ---
@@ -64,6 +65,7 @@ export interface AiEvent {
 export interface NewsItem {
   headline: string;
   summary: string;
+  sourceURL: string;
 }
 
 // New type for the structured Weather information
