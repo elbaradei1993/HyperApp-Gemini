@@ -199,7 +199,7 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[2000] p-4" onClick={handleClose}>
-      <audio ref={audioRef} src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto" className="hidden" aria-hidden="true" />
+      <audio ref={audioRef} src="https://actions.google.com/sounds/v1/emergency/beeper_confirm.ogg" preload="auto" className="hidden" aria-hidden="true" />
       <div 
         className="bg-brand-secondary rounded-lg shadow-xl w-full max-w-md relative animate-fade-in-down border-2 border-red-500/50"
         onClick={e => e.stopPropagation()}

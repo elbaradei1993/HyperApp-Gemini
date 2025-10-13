@@ -404,7 +404,7 @@ const MapWrapper: React.FC = () => {
       )}
       <div className="absolute top-20 right-4 z-[1000] flex flex-col gap-3">
         <button onClick={() => mapRef.current?.locate({ setView: true, maxZoom: 16 })} className="bg-white p-2 rounded-full shadow-lg">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24" fill="black" className="w-6 h-6"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path fillRule="evenodd" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-2.25a6.75 6.75 0 1 1 0-13.5 6.75 6.75 0 0 1 0 13.5Z" clipRule="evenodd" /></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="black" className="w-6 h-6"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path fillRule="evenodd" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-2.25a6.75 6.75 0 1 1 0-13.5 6.75 6.75 0 0 1 0 13.5Z" clipRule="evenodd" /></svg>
         </button>
         <button onClick={handleFilterPanelToggle} className={`p-2 rounded-full shadow-lg transition-colors ${showHeatmap ? 'bg-brand-accent text-white' : 'bg-white text-black'}`}>
           <FireIcon className="w-6 h-6" />
