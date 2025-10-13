@@ -1,8 +1,10 @@
-import React, { useEffect, useContext, useState } from 'react';
+import React, { useEffect, useContext, useState, useRef } from 'react';
 import { Outlet } from 'react-router-dom'; // Import Outlet
 import BottomNavbar from './BottomNavbar';
+import ReportVibeModal from '../vibe/ReportVibeModal'; // Import the new modal
 import { supabase } from '../../services/supabaseClient';
 import { AuthContext } from '../../contexts/AuthContext';
+import { useData } from '../../contexts/DataContext';
 import type { SafeZone, Location } from '../../types';
 import { VibeType } from '../../types';
 import { haversineDistance } from '../../utils/geolocation';
@@ -18,9 +20,21 @@ const parseLocationFromPayload = (loc: any): Location | null => {
     return null;
 }
 
-const Layout: React.FC = () => { // Removed children from props
+const Layout: React.FC = () => {
   const auth = useContext(AuthContext);
+  const { userSettings } = useData();
   const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
+  const [isReportVibeModalOpen, setIsReportVibeModalOpen] = useState(false);
+  
+  // Use a ref to hold the latest settings and zones to avoid re-subscribing on every change
+  const settingsRef = useRef(userSettings);
+  const safeZonesRef = useRef(safeZones);
+
+  useEffect(() => {
+    settingsRef.current = userSettings;
+    safeZonesRef.current = safeZones;
+  }, [userSettings, safeZones]);
+
 
   useEffect(() => {
     if (!auth?.user) return;
@@ -46,26 +60,32 @@ const Layout: React.FC = () => { // Removed children from props
     const alertChannel = supabase.channel('public-alerts-insert-only')
       .on('postgres_changes', { event: 'INSERT', schema: 'public' },
         (payload) => {
-          if (safeZones.length === 0 || !payload.new) return;
+          const currentSettings = settingsRef.current;
+          const currentZones = safeZonesRef.current;
+          
+          if (!currentSettings.notifications.safeZoneAlerts || currentZones.length === 0 || !payload.new) return;
 
           const newRecord = payload.new as any;
           
           let alertLocation: Location | null = null;
           let isCriticalAlert = false;
           let alertType = '';
+          let shouldNotify = false;
 
-          if (payload.table === 'vibes' && newRecord.vibe_type === VibeType.Dangerous) {
+          if (payload.table === 'vibes' && newRecord.vibe_type === VibeType.Dangerous && currentSettings.notifications.onDangerousVibe) {
             alertLocation = parseLocationFromPayload(newRecord.location);
             isCriticalAlert = true;
             alertType = 'Dangerous Vibe';
-          } else if (payload.table === 'sos') {
+            shouldNotify = true;
+          } else if (payload.table === 'sos' && currentSettings.notifications.onSOS) {
             alertLocation = parseLocationFromPayload(newRecord.location);
             isCriticalAlert = true;
             alertType = 'SOS Alert';
+            shouldNotify = true;
           }
 
-          if (isCriticalAlert && alertLocation) {
-            for (const zone of safeZones) {
+          if (shouldNotify && isCriticalAlert && alertLocation) {
+            for (const zone of currentZones) {
               if (zone.location && zone.radius_km) {
                 const distance = haversineDistance(alertLocation, zone.location);
                 if (distance <= zone.radius_km) {
@@ -95,16 +115,17 @@ const Layout: React.FC = () => { // Removed children from props
       supabase.removeChannel(safeZoneChannel);
     };
 
-  }, [auth?.user]); 
+  }, [auth?.user]);
 
 
   return (
     <div className="h-full bg-brand-primary flex flex-col">
       <Header />
       <main className="flex-grow pt-16 pb-20 relative overflow-y-auto">
-        <Outlet /> {/* Render the matched child route here */}
+        <Outlet />
       </main>
-      <BottomNavbar />
+      <BottomNavbar onReportVibeClick={() => setIsReportVibeModalOpen(true)} />
+      <ReportVibeModal isOpen={isReportVibeModalOpen} onClose={() => setIsReportVibeModalOpen(false)} />
     </div>
   );
 };

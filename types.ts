@@ -1,4 +1,3 @@
-// FIX: Removed self-import of 'Location' which was causing a conflict with the local declaration.
 // types.ts
 export interface Location {
   lat: number;
@@ -56,7 +55,26 @@ export interface AiEvent {
   description: string;
   date: string;
   locationString: string;
-  sourceURL: string;
+}
+
+// --- New types for cached AI data ---
+
+// New type for the Live Briefing news items
+export interface NewsItem {
+  headline: string;
+  summary: string;
+}
+
+// New type for the structured Weather information
+export interface WeatherInfo { 
+  text: string; 
+  icon: string; 
+}
+
+// New type for the entire Live Briefing payload
+export interface LiveBriefing { 
+  weather?: WeatherInfo; 
+  news: NewsItem[]; 
 }
 
 export interface EventAttendee {
@@ -72,6 +90,21 @@ export interface SafeZone {
   name: string;
   location: Location;
   radius_km: number;
+}
+
+// New type for user-specific settings
+export interface UserSettings {
+  notifications: {
+    safeZoneAlerts: boolean;
+    onDangerousVibe: boolean;
+    onSOS: boolean;
+  };
+  privacy: {
+    anonymousByDefault: boolean;
+  };
+  map: {
+    defaultView: 'heatmap' | 'markers';
+  };
 }
 
 // From Ticketmaster API

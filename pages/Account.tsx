@@ -149,16 +149,6 @@ const Account: React.FC = () => {
       }
   }
 
-
-  const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error('Error signing out:', error);
-    } else {
-      navigate('/login', { replace: true });
-    }
-  };
-
   if (loading) return <div className="p-4 text-white text-center">Loading profile...</div>;
 
   return (
@@ -246,9 +236,6 @@ const Account: React.FC = () => {
         )}
       </div>
 
-      <button onClick={handleSignOut} className="w-full bg-red-600/80 text-white font-bold py-2 px-4 rounded-md hover:bg-red-700">
-        Sign Out
-      </button>
     </div>
   );
 };

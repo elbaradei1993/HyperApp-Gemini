@@ -74,7 +74,7 @@ const MapWrapper: React.FC = () => {
   const safeZoneLayersRef = useRef<Record<number, any>>({});
 
   const auth = useContext(AuthContext);
-  const { vibes, sos, events, loading: dataLoading, error: dataError } = useData();
+  const { vibes, sos, events, loading: dataLoading, error: dataError, userSettings } = useData();
   
   const reactRouterLocation = useLocation();
   const navigate = useNavigate();
@@ -85,12 +85,17 @@ const MapWrapper: React.FC = () => {
 
   const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
   const [showHeatmap, setShowHeatmap] = useState(true);
-  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(true);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [isSosModalOpen, setIsSosModalOpen] = useState(false);
   const [heatmapFilters, setHeatmapFilters] = useState<Set<VibeType>>(
     new Set(Object.values(VibeType))
   );
   const [summaryModalState, setSummaryModalState] = useState<SummaryModalState>({ isOpen: false, isLoading: false, summary: null, error: null });
+  
+  // Set initial map view based on user settings
+  useEffect(() => {
+    setShowHeatmap(userSettings.map.defaultView === 'heatmap');
+  }, [userSettings.map.defaultView]);
   
   // --- Map Initialization Effect ---
   // This effect runs only ONCE to create the map instance.
@@ -210,19 +215,18 @@ const MapWrapper: React.FC = () => {
           .filter(v => v[2] > 0);
       
       if (heatmapData.length > 0) {
-          // Force Leaflet to re-measure its container size
-          // immediately before we attempt to draw. This guarantees the size
-          // check is not using stale data and prevents the race condition crash.
+          // REINFORCED FIX: Force Leaflet to re-measure its container size
+          // and check dimensions immediately before drawing to prevent race condition crashes.
           map.invalidateSize();
-          
           const mapSize = map.getSize();
+          
           if (mapSize.x > 0 && mapSize.y > 0) {
               heatLayerRef.current = L.heatLayer(heatmapData, {
                   radius: 30, blur: 25, maxZoom: 17,
                   gradient: { 0.2: '#34d399', 0.4: '#3b82f6', 0.6: '#f59e0b', 0.8: '#ef4444', 1.0: '#b91c1c' }
               }).addTo(map);
           } else {
-              console.warn("Map container has zero size after invalidation, skipping heatmap render to prevent crash.");
+              console.warn("Map container has zero size, skipping heatmap render to prevent crash.");
           }
       }
     } else {
@@ -234,7 +238,7 @@ const MapWrapper: React.FC = () => {
             if (v.vibe_type === VibeType.Dangerous) {
                 marker.on('click', () => {
                     if (window.confirm("This is a 'Dangerous' vibe report. Do you want to open the Live Assistant for immediate help?")) {
-                        navigate('/services');
+                        navigate('/pulse'); // Navigate to the unified Pulse tab
                     } else {
                         L.popup().setLatLng(marker.getLatLng()).setContent(popupContent).openOn(map);
                     }
@@ -251,7 +255,7 @@ const MapWrapper: React.FC = () => {
             
             marker.on('click', () => {
                 if (window.confirm("This is an SOS alert. Do you want to open the Live Assistant for immediate help?")) {
-                    navigate('/services');
+                    navigate('/pulse'); // Navigate to the unified Pulse tab
                 } else {
                     L.popup().setLatLng(marker.getLatLng()).setContent(popupContent).openOn(map);
                 }
@@ -332,9 +336,6 @@ const MapWrapper: React.FC = () => {
   };
 
   const handleFilterPanelToggle = () => {
-    if (!showHeatmap) {
-        setShowHeatmap(true);
-    }
     setIsFilterPanelOpen(prev => !prev);
   };
 
