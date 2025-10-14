@@ -14,16 +14,16 @@ const AreaSummaryModal: React.FC<AreaSummaryModalProps> = ({ isOpen, isLoading, 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-[2000]" onClick={onClose}>
       <div 
-        className="bg-brand-secondary rounded-lg shadow-xl p-6 m-4 w-full max-w-md relative animate-fade-in-down"
+        className="bg-brand-secondary/80 backdrop-blur-lg border border-brand-accent/20 rounded-lg shadow-xl p-6 m-4 w-full max-w-md relative animate-fade-in-down"
         onClick={(e) => e.stopPropagation()}
       >
-        <button onClick={onClose} className="absolute top-2 right-2 text-gray-400 hover:text-white">
+        <button onClick={onClose} className="absolute top-2 right-2 text-text-secondary hover:text-text-primary">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
           </svg>
         </button>
         
-        <h2 className="text-xl font-bold text-white mb-4">
+        <h2 className="text-xl font-bold text-text-primary mb-4">
           {isLoading && !summary ? 'Generating Area Summary...' : 'Area Summary'}
         </h2>
 
@@ -39,7 +39,7 @@ const AreaSummaryModal: React.FC<AreaSummaryModalProps> = ({ isOpen, isLoading, 
         {error && <p className="text-red-400 bg-red-500/10 p-3 rounded-md">{error}</p>}
         
         {summary && (
-            <p className="text-gray-300 leading-relaxed min-h-[6rem]">
+            <p className="text-text-secondary leading-relaxed min-h-[6rem]">
                 {summary}
                 {isLoading && <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse" style={{ animationDuration: '1s' }}></span>}
             </p>

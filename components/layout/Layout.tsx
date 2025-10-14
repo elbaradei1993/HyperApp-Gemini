@@ -5,6 +5,7 @@ import ReportVibeModal from '../vibe/ReportVibeModal'; // Import the new modal
 import { supabase } from '../../services/supabaseClient';
 import { AuthContext } from '../../contexts/AuthContext';
 import { useData } from '../../contexts/DataContext';
+import { useNotification } from '../../contexts/NotificationContext';
 import type { SafeZone, Location } from '../../types';
 import { VibeType } from '../../types';
 import { haversineDistance } from '../../utils/geolocation';
@@ -23,6 +24,7 @@ const parseLocationFromPayload = (loc: any): Location | null => {
 const Layout: React.FC = () => {
   const auth = useContext(AuthContext);
   const { userSettings } = useData();
+  const { showNotification } = useNotification();
   const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
   const [isReportVibeModalOpen, setIsReportVibeModalOpen] = useState(false);
   
@@ -60,6 +62,12 @@ const Layout: React.FC = () => {
     const alertChannel = supabase.channel('public-alerts-insert-only')
       .on('postgres_changes', { event: 'INSERT', schema: 'public' },
         (payload) => {
+          // Only show in-app notification if the tab is active.
+          // The service worker will handle notifications if the app is in the background.
+          if (document.visibilityState !== 'visible') {
+            return;
+          }
+
           const currentSettings = settingsRef.current;
           const currentZones = safeZonesRef.current;
           
@@ -89,11 +97,8 @@ const Layout: React.FC = () => {
               if (zone.location && zone.radius_km) {
                 const distance = haversineDistance(alertLocation, zone.location);
                 if (distance <= zone.radius_km) {
-                  console.warn(
-                    `🚨 PUSH NOTIFICATION 🚨\n` +
-                    `A new "${alertType}" was reported inside your safe zone "${zone.name}".\n` +
-                    `Please check the map for more details.`
-                  );
+                  const toastMessage = `A new "${alertType}" was reported inside your safe zone "${zone.name}".`;
+                  showNotification(toastMessage, 'warning');
                   break; 
                 }
               }
@@ -115,11 +120,11 @@ const Layout: React.FC = () => {
       supabase.removeChannel(safeZoneChannel);
     };
 
-  }, [auth?.user]);
+  }, [auth?.user, showNotification]);
 
 
   return (
-    <div className="h-full bg-brand-primary flex flex-col">
+    <div className="h-full flex flex-col">
       <Header />
       <main className="flex-grow pt-16 pb-20 relative overflow-y-auto">
         <Outlet />

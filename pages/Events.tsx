@@ -45,26 +45,26 @@ const EventCard: React.FC<EventCardProps> = ({ event, currentUserId, isAttending
     const isPastEvent = eventEndDate < now;
 
     return (
-        <div className={`bg-brand-secondary p-4 rounded-lg space-y-3 ${isPastEvent ? 'opacity-60' : ''}`}>
+        <div className={`bg-brand-secondary/40 backdrop-blur-sm border border-gray-700/50 rounded-lg p-4 space-y-3 transition-colors hover:border-brand-accent/30 ${isPastEvent ? 'opacity-60' : ''}`}>
             <div className="flex justify-between items-start">
                 <div>
                     <h3 className="text-xl font-bold">{event.title}</h3>
-                    <p className="text-sm text-gray-400">by {event.profiles?.username || 'anonymous'}</p>
+                    <p className="text-sm text-text-secondary">by {event.profiles?.username || 'anonymous'}</p>
                 </div>
                 {isOwner && (
                     <div className="flex space-x-2">
-                        <Link to={`/edit-event/${event.id}`} className="p-2 text-gray-400 hover:text-white">
+                        <Link to={`/edit-event/${event.id}`} className="p-2 text-text-secondary hover:text-text-primary">
                             <PencilSquareIcon className="w-5 h-5" />
                         </Link>
                     </div>
                 )}
             </div>
-            <p className="text-gray-300">{event.description}</p>
+            <p className="text-text-secondary">{event.description}</p>
             <div>
                 <p className="font-semibold text-brand-accent">
                     {new Date(event.event_time).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
                 </p>
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-text-secondary">
                     {new Date(event.event_time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                     {event.end_time && ` - ${new Date(event.end_time).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`}
                 </p>
@@ -72,16 +72,16 @@ const EventCard: React.FC<EventCardProps> = ({ event, currentUserId, isAttending
             <div className="flex justify-between items-center pt-3 border-t border-gray-700">
                 <div className="flex items-center space-x-2">
                     <UserGroupIcon className="w-5 h-5 text-brand-accent"/>
-                    <span className="font-bold text-white">{localAttendeeCount}</span>
-                    <span className="text-sm text-gray-400">attending</span>
+                    <span className="font-bold text-text-primary">{localAttendeeCount}</span>
+                    <span className="text-sm text-text-secondary">attending</span>
                 </div>
                 {!isPastEvent && (
                     localIsAttending ? (
-                        <button onClick={handleLeave} disabled={actionLoading} className="bg-red-600/50 text-red-200 text-sm font-bold py-1 px-3 rounded-md hover:bg-red-600 disabled:opacity-50">
+                        <button onClick={handleLeave} disabled={actionLoading} className="bg-brand-danger/80 text-white text-sm font-bold py-1 px-3 rounded-md hover:bg-brand-danger disabled:opacity-50">
                             Leave
                         </button>
                     ) : (
-                        <button onClick={handleAttend} disabled={actionLoading} className="bg-brand-accent text-white text-sm font-bold py-1 px-3 rounded-md hover:bg-blue-600 disabled:opacity-50">
+                        <button onClick={handleAttend} disabled={actionLoading} className="bg-brand-accent text-brand-primary text-sm font-bold py-1 px-3 rounded-md hover:bg-cyan-400 disabled:opacity-50">
                             Attend
                         </button>
                     )
@@ -93,16 +93,16 @@ const EventCard: React.FC<EventCardProps> = ({ event, currentUserId, isAttending
 
 const AiEventCard: React.FC<{ event: AiEvent }> = ({ event }) => {
     return (
-        <div className="bg-brand-secondary/50 border border-gray-700 p-4 rounded-lg space-y-3 flex flex-col justify-between">
+        <div className="bg-brand-secondary/40 backdrop-blur-sm border border-purple-500/30 rounded-lg p-4 space-y-3 flex flex-col justify-between">
              <div className="space-y-3">
                 <div>
                     <h3 className="text-lg font-bold">{event.eventName}</h3>
                     <p className="text-xs text-purple-300">Discovered Event</p>
                 </div>
-                <p className="text-sm text-gray-300">{event.description}</p>
+                <p className="text-sm text-text-secondary">{event.description}</p>
                 <div>
                     <p className="font-semibold text-brand-accent">{event.date}</p>
-                    <p className="text-sm text-gray-400">{event.locationString}</p>
+                    <p className="text-sm text-text-secondary">{event.locationString}</p>
                 </div>
             </div>
             {event.sourceURL && (
@@ -111,7 +111,7 @@ const AiEventCard: React.FC<{ event: AiEvent }> = ({ event }) => {
                         href={event.sourceURL} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="block w-full text-center bg-gray-600 text-white font-bold py-2 px-4 rounded-md hover:bg-gray-500 text-sm"
+                        className="block w-full text-center bg-gray-600 text-text-primary font-bold py-2 px-4 rounded-md hover:bg-gray-500 text-sm"
                     >
                         More details
                     </a>
@@ -158,14 +158,14 @@ const Events: React.FC = () => {
                 <h1 className="text-3xl font-bold">Community Events</h1>
                 <button
                     onClick={() => navigate('/', { state: { settingEvent: true } })}
-                    className="flex items-center space-x-2 bg-brand-accent text-white font-bold py-2 px-4 rounded-md hover:bg-blue-600"
+                    className="flex items-center space-x-2 bg-brand-accent text-brand-primary font-bold py-2 px-4 rounded-md hover:bg-cyan-400"
                 >
                     <PlusCircleIcon className="w-5 h-5" />
                     <span>New Event</span>
                 </button>
             </div>
             
-            {loading && <p className="text-center py-8 text-gray-400">Loading events...</p>}
+            {loading && <p className="text-center py-8 text-text-secondary">Loading events...</p>}
             {error && <p className="bg-red-500/20 text-red-300 p-3 rounded-md text-center">{error}</p>}
             
             {!loading && !error && (
@@ -184,7 +184,7 @@ const Events: React.FC = () => {
                                 />
                             ))
                         ) : (
-                             <div className="text-center py-8 text-gray-400">
+                             <div className="text-center py-8 text-text-secondary">
                                 <p>No upcoming community events found.</p>
                                 <p className="text-sm mt-1">Why not create one?</p>
                             </div>
@@ -203,7 +203,7 @@ const Events: React.FC = () => {
                                 <span>{aiEventsLoading ? 'Searching...' : 'Discover Nearby Events'}</span>
                             </button>
                         </div>
-                        {aiEventsLoading && aiEvents.length === 0 && <p className="text-center py-8 text-gray-400">Searching for local events...</p>}
+                        {aiEventsLoading && aiEvents.length === 0 && <p className="text-center py-8 text-text-secondary">Searching for local events...</p>}
                         {aiEventsError && <p className="bg-yellow-500/20 text-yellow-300 p-3 rounded-md text-center text-sm">{aiEventsError}</p>}
                         
                         {aiEvents.length > 0 && (
@@ -229,7 +229,7 @@ const Events: React.FC = () => {
                                 />
                             ))
                         ) : (
-                            <p className="text-center py-4 text-gray-400">No events have concluded in the last 12 hours.</p>
+                            <p className="text-center py-4 text-text-secondary">No events have concluded in the last 12 hours.</p>
                         )}
                     </div>
                 </>

@@ -41,6 +41,7 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const analyserRef = useRef<AnalyserNode | null>(null);
     const animationFrameIdRef = useRef<number | null>(null);
+    const resizeObserverRef = useRef<ResizeObserver | null>(null);
     
     const currentInputTranscriptionRef = useRef('');
     const currentOutputTranscriptionRef = useRef('');
@@ -52,7 +53,7 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
 
         const analyser = analyserRef.current;
         const canvas = canvasRef.current;
-        const canvasCtx = canvas.getContext('2d');
+        const canvasCtx = canvas.getContext('2d', { willReadFrequently: true });
         
         if (!canvasCtx || canvas.width === 0 || canvas.height === 0) {
             return;
@@ -62,10 +63,10 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
         const dataArray = new Uint8Array(bufferLength);
         analyser.getByteTimeDomainData(dataArray);
 
-        canvasCtx.fillStyle = 'rgb(26, 32, 44)';
+        canvasCtx.fillStyle = 'rgb(13, 17, 23)'; // brand-primary
         canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
         canvasCtx.lineWidth = 2;
-        canvasCtx.strokeStyle = 'rgb(66, 153, 225)';
+        canvasCtx.strokeStyle = 'rgb(0, 229, 255)'; // brand-accent
         canvasCtx.beginPath();
 
         const sliceWidth = (canvas.width * 1.0) / bufferLength;
@@ -85,6 +86,10 @@ const LiveAssistantModal: React.FC<LiveAssistantModalProps> = ({ isOpen, onClose
     }, []);
 
     const cleanup = () => {
+        if (resizeObserverRef.current) {
+            resizeObserverRef.current.disconnect();
+            resizeObserverRef.current = null;
+        }
         if (animationFrameIdRef.current) {
             cancelAnimationFrame(animationFrameIdRef.current);
             animationFrameIdRef.current = null;
@@ -259,15 +264,16 @@ Use this comprehensive context to inform your decision. Ask clarifying questions
                             analyser.connect(scriptProcessor);
                             scriptProcessor.connect(inputAudioContextRef.current!.destination);
                             
-                             // FIX: Use ResizeObserver to safely start the animation.
                             if (canvasRef.current) {
-                                const resizeObserver = new ResizeObserver(entries => {
+                                const observer = new ResizeObserver(entries => {
                                     if (entries[0] && entries[0].contentRect.width > 0) {
                                         drawWaveform();
-                                        resizeObserver.disconnect();
+                                        observer.disconnect();
+                                        resizeObserverRef.current = null;
                                     }
                                 });
-                                resizeObserver.observe(canvasRef.current);
+                                observer.observe(canvasRef.current);
+                                resizeObserverRef.current = observer;
                             }
 
                             scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
@@ -394,7 +400,7 @@ Use this comprehensive context to inform your decision. Ask clarifying questions
 
     return (
         <div className="fixed inset-0 bg-brand-primary z-[9999] flex flex-col p-4 font-sans">
-            <div className="flex justify-between items-center mb-4 text-white">
+            <div className="flex justify-between items-center mb-4 text-text-primary">
                 <h1 className="text-2xl font-bold">Live Emergency Assistant</h1>
                 <div className="flex items-center space-x-2">
                     <span className={`h-3 w-3 rounded-full ${status === 'Live' ? 'bg-red-500 animate-pulse' : 'bg-yellow-500'}`}></span>
@@ -404,7 +410,7 @@ Use this comprehensive context to inform your decision. Ask clarifying questions
             <div className="flex-grow bg-brand-secondary rounded-lg p-4 overflow-y-auto space-y-4">
                 {transcription.map((entry, index) => (
                     <div key={index} className={`flex ${entry.speaker === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-xs md:max-w-md lg:max-w-lg p-3 rounded-lg ${entry.speaker === 'user' ? 'bg-brand-accent text-white' : 'bg-gray-600 text-white'}`}>
+                        <div className={`max-w-xs md:max-w-md lg:max-w-lg p-3 rounded-lg ${entry.speaker === 'user' ? 'bg-brand-accent text-brand-primary font-medium' : 'bg-gray-700 text-text-primary'}`}>
                             <p className="whitespace-pre-wrap">{entry.text}</p>
                         </div>
                     </div>
@@ -423,7 +429,7 @@ Use this comprehensive context to inform your decision. Ask clarifying questions
                  <canvas ref={canvasRef} width="600" height="80" className="w-full h-16 rounded-md bg-brand-primary"></canvas>
                 <button
                     onClick={handleClose}
-                    className="w-full mt-2 bg-red-600 text-white font-bold py-3 px-4 rounded-md hover:bg-red-700 transition-colors"
+                    className="w-full mt-2 bg-brand-danger text-white font-bold py-3 px-4 rounded-md hover:bg-fuchsia-500 transition-colors"
                 >
                     End Session
                 </button>

@@ -37,16 +37,16 @@ const Login: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-brand-primary flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-brand-secondary rounded-lg shadow-lg p-8">
-        <h1 className="text-3xl font-bold text-center text-white mb-2">HyperAPP</h1>
-        <p className="text-center text-gray-400 mb-8">{isLogin ? 'Welcome back' : 'Create an account'}</p>
+      <div className="w-full max-w-md bg-brand-secondary/50 backdrop-blur-sm border border-gray-700/50 rounded-lg shadow-lg p-8">
+        <h1 className="text-3xl font-bold text-center text-text-primary mb-2">HyperAPP</h1>
+        <p className="text-center text-text-secondary mb-8">{isLogin ? 'Welcome back' : 'Create an account'}</p>
         
         {error && <p className="bg-red-500/20 text-red-400 p-3 rounded-md mb-4 text-center">{error}</p>}
         {message && <p className="bg-blue-500/20 text-blue-300 p-3 rounded-md mb-4 text-center">{message}</p>}
 
         <form onSubmit={handleAuth}>
           <div className="mb-4">
-            <label className="block text-gray-400 text-sm font-bold mb-2" htmlFor="email">
+            <label className="block text-text-secondary text-sm font-bold mb-2" htmlFor="email">
               Email
             </label>
             <input
@@ -54,12 +54,12 @@ const Login: React.FC = () => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-gray-700 text-white border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-brand-accent"
+              className="w-full bg-gray-800 text-text-primary border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-brand-accent"
               required
             />
           </div>
           <div className="mb-6">
-            <label className="block text-gray-400 text-sm font-bold mb-2" htmlFor="password">
+            <label className="block text-text-secondary text-sm font-bold mb-2" htmlFor="password">
               Password
             </label>
             <input
@@ -67,19 +67,19 @@ const Login: React.FC = () => {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-gray-700 text-white border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-brand-accent"
+              className="w-full bg-gray-800 text-text-primary border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-brand-accent"
               required
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-brand-accent text-white font-bold py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-brand-accent disabled:bg-gray-500"
+            className="w-full bg-brand-accent text-brand-primary font-bold py-2 px-4 rounded-md hover:bg-cyan-400 focus:outline-none focus:ring-2 focus:ring-brand-accent disabled:bg-gray-500"
           >
             {loading ? 'Processing...' : (isLogin ? 'Sign In' : 'Sign Up')}
           </button>
         </form>
-        <p className="text-center text-gray-400 text-sm mt-6">
+        <p className="text-center text-text-secondary text-sm mt-6">
           {isLogin ? "Don't have an account?" : "Already have an account?"}
           <button onClick={() => setIsLogin(!isLogin)} className="text-brand-accent font-bold ml-1 focus:outline-none">
             {isLogin ? 'Sign Up' : 'Sign In'}

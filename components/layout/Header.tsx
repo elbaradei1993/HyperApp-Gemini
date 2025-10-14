@@ -58,9 +58,9 @@ const Header: React.FC = () => {
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 bg-brand-secondary border-b border-gray-700 shadow-lg z-50 h-16">
+    <header className="fixed top-0 left-0 right-0 bg-brand-secondary/70 backdrop-blur-md border-b border-brand-accent/20 shadow-lg z-50 h-16">
       <div className="max-w-md mx-auto px-4 h-full flex justify-between items-center">
-        <h1 className="text-xl font-bold text-white">HyperAPP</h1>
+        <h1 className="text-xl font-bold text-text-primary">HyperAPP</h1>
         <div className="flex items-center space-x-4">
           <GlobalSearch />
           {user && (

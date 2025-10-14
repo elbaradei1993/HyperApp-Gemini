@@ -201,7 +201,7 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[2000] p-4" onClick={handleClose}>
       <audio ref={audioRef} src="https://cdn.pixabay.com/audio/2022/03/15/audio_28b1b1ea0d.mp3" preload="auto" className="hidden" aria-hidden="true" />
       <div 
-        className="bg-brand-secondary rounded-lg shadow-xl w-full max-w-md relative animate-fade-in-down border-2 border-red-500/50"
+        className="bg-brand-secondary/80 backdrop-blur-lg rounded-lg shadow-xl w-full max-w-md relative animate-fade-in-down border-2 border-brand-danger/50"
         onClick={e => e.stopPropagation()}
       >
         {showConfirmation && confirmData ? (
@@ -209,12 +209,12 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
             <h2 className="text-xl font-bold text-center text-yellow-300">Confirm SOS Alert</h2>
             <div className="bg-brand-primary p-3 rounded-md space-y-2 text-sm">
               <div>
-                <p className="text-xs font-semibold text-gray-400">DETAILS</p>
-                <p className="text-white whitespace-pre-wrap leading-tight">{details}</p>
+                <p className="text-xs font-semibold text-text-secondary">DETAILS</p>
+                <p className="text-text-primary whitespace-pre-wrap leading-tight">{details}</p>
               </div>
               <div className="pt-2 border-t border-gray-700">
-                <p className="text-xs font-semibold text-gray-400">LOCATION (APPROXIMATE)</p>
-                <p className="text-white">{confirmData.address}</p>
+                <p className="text-xs font-semibold text-text-secondary">LOCATION (APPROXIMATE)</p>
+                <p className="text-text-primary">{confirmData.address}</p>
               </div>
             </div>
             <p className="text-sm text-center text-red-300">This action cannot be undone. Are you sure you want to send this alert to the community?</p>
@@ -222,14 +222,14 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
               <button
                 onClick={() => setShowConfirmation(false)}
                 disabled={isSubmitting}
-                className="flex-1 bg-gray-600 text-white font-bold py-3 px-4 rounded-md hover:bg-gray-500 disabled:opacity-50"
+                className="flex-1 bg-gray-600 text-text-primary font-bold py-3 px-4 rounded-md hover:bg-gray-500 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmSend}
                 disabled={isSubmitting}
-                className="flex-1 bg-red-600 text-white font-bold py-3 px-4 rounded-md hover:bg-red-700 disabled:bg-red-800 disabled:cursor-wait"
+                className="flex-1 bg-brand-danger text-white font-bold py-3 px-4 rounded-md hover:bg-fuchsia-500 disabled:bg-fuchsia-800 disabled:cursor-wait"
               >
                 {isSubmitting ? 'Sending...' : 'CONFIRM & SEND'}
               </button>
@@ -238,21 +238,21 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
         ) : (
           <div className="p-6 space-y-4">
               <div className="text-center">
-                  <ExclamationTriangleIcon className="w-12 h-12 text-red-400 mx-auto mb-2" />
-                  <h2 className="text-2xl font-bold text-white">Emergency SOS</h2>
-                  <p className="text-sm text-gray-400">Only use this in a genuine emergency. Your location will be shared with the community.</p>
+                  <ExclamationTriangleIcon className="w-12 h-12 text-brand-danger mx-auto mb-2" />
+                  <h2 className="text-2xl font-bold text-text-primary">Emergency SOS</h2>
+                  <p className="text-sm text-text-secondary">Only use this in a genuine emergency. Your location will be shared with the community.</p>
               </div>
               
               {error && <p className="bg-red-900/50 text-red-300 p-3 rounded-md text-sm text-center">{error}</p>}
               
               <div className="space-y-2">
-                  <label htmlFor="details" className="block text-sm font-medium text-gray-300">
+                  <label htmlFor="details" className="block text-sm font-medium text-text-secondary">
                       Briefly describe the situation:
                   </label>
                   {isRecording && (
                       <div className="flex items-center justify-center space-x-2 p-2 bg-brand-primary rounded-md">
                         <MicrophoneIcon className="w-6 h-6 text-yellow-400 animate-pulse" />
-                        <span className="text-sm text-gray-300 font-medium">Listening...</span>
+                        <span className="text-sm text-text-secondary font-medium">Listening...</span>
                       </div>
                   )}
                   <textarea 
@@ -261,7 +261,7 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
                       value={details}
                       onChange={e => setDetails(e.target.value)}
                       placeholder="e.g., 'Suspicious person following me near the park entrance.'"
-                      className="w-full bg-brand-primary text-white border border-gray-600 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-red-500"
+                      className="w-full bg-brand-primary text-text-primary border border-gray-600 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-brand-danger"
                   />
               </div>
               
@@ -272,7 +272,7 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
                   className={`w-full flex items-center justify-center space-x-2 font-semibold py-2 px-4 rounded-md transition-colors disabled:opacity-50
                     ${isRecording 
                       ? 'bg-yellow-600 hover:bg-yellow-700 text-white' 
-                      : 'bg-gray-600 hover:bg-gray-500 text-white'
+                      : 'bg-gray-600 hover:bg-gray-500 text-text-primary'
                     }`
                   }
               >
@@ -285,7 +285,7 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
                       type="button"
                       onClick={handleClose}
                       disabled={isSubmitting || isPreparing}
-                      className="flex-1 bg-gray-700 text-white font-bold py-3 px-4 rounded-md hover:bg-gray-600 disabled:opacity-50"
+                      className="flex-1 bg-gray-700 text-text-primary font-bold py-3 px-4 rounded-md hover:bg-gray-600 disabled:opacity-50"
                   >
                       Cancel
                   </button>
@@ -293,7 +293,7 @@ const SOSModal: React.FC<SOSModalProps> = ({ isOpen, onClose }) => {
                       type="button"
                       onClick={handleInitiateSubmit}
                       disabled={isSubmitting || isPreparing || !details.trim()}
-                      className="flex-1 bg-red-600 text-white font-bold py-3 px-4 rounded-md hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed"
+                      className="flex-1 bg-brand-danger text-white font-bold py-3 px-4 rounded-md hover:bg-fuchsia-500 disabled:bg-fuchsia-800 disabled:cursor-not-allowed"
                   >
                       {isPreparing ? 'Getting Location...' : 'SEND ALERT'}
                   </button>

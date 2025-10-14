@@ -102,9 +102,10 @@ const MapWrapper: React.FC = () => {
           center: [40.7128, -74.0060],
           zoom: 13,
       });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19,
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 20
       }).addTo(map);
       
       mapRef.current = map;
@@ -193,7 +194,7 @@ const MapWrapper: React.FC = () => {
     safeZones.forEach(zone => {
       const circle = L.circle([zone.location.lat, zone.location.lng], {
         radius: zone.radius_km * 1000,
-        color: 'cyan', fillColor: 'cyan', fillOpacity: 0.1, weight: 1,
+        color: '#00E5FF', fillColor: '#00E5FF', fillOpacity: 0.1, weight: 1.5,
       }).bindPopup(`<strong>Safe Zone:</strong> ${zone.name}`);
       map.addLayer(circle);
       safeZoneLayersRef.current[zone.id] = circle;
@@ -213,7 +214,7 @@ const MapWrapper: React.FC = () => {
       if (heatmapData.length > 0) {
           heatLayerRef.current = L.heatLayer(heatmapData, {
               radius: 30, blur: 25, maxZoom: 17,
-              gradient: { 0.2: '#34d399', 0.4: '#3b82f6', 0.6: '#f59e0b', 0.8: '#ef4444', 1.0: '#b91c1c' }
+              gradient: { 0.2: '#0052D4', 0.4: '#00E5FF', 0.8: '#F97316', 1.0: '#FF00C1' }
           }).addTo(map);
       }
     } else {
@@ -270,7 +271,7 @@ const MapWrapper: React.FC = () => {
     map.off('contextmenu').off('click');
 
     if (isSettingZone) {
-      map.on('click', (e: any) => navigate('/profile', { state: { newZoneLocation: e.latlng } }));
+      map.on('click', (e: any) => navigate('/settings', { state: { newZoneLocation: e.latlng } }));
     } else if (isSettingEvent) {
       map.on('click', (e: any) => navigate('/create-event', { state: { newEventLocation: e.latlng } }));
     } else {
@@ -340,7 +341,7 @@ const MapWrapper: React.FC = () => {
   return (
     <div className="h-full w-full relative">
        {currentMode !== 'none' && (
-        <div className="absolute top-16 left-0 right-0 p-3 bg-brand-accent text-center z-[1001] animate-pulse">
+        <div className="absolute top-16 left-0 right-0 p-3 bg-brand-accent text-center text-brand-primary font-semibold z-[1001] animate-pulse">
           {currentMode === 'zone' 
             ? 'Click on the map to set the center of your new safe zone.'
             : 'Click on the map to place your new community event.'
@@ -351,7 +352,7 @@ const MapWrapper: React.FC = () => {
       <div className="absolute bottom-24 right-4 z-[1000]">
           <button 
               onClick={() => setIsSosModalOpen(true)}
-              className="bg-red-600 text-white rounded-full p-4 shadow-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-brand-primary focus:ring-red-500 transform transition-transform hover:scale-110"
+              className="bg-brand-danger text-white rounded-full p-4 shadow-lg hover:bg-fuchsia-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-brand-primary focus:ring-brand-danger transform transition-transform hover:scale-110"
               aria-label="Send SOS Alert"
           >
               <ExclamationTriangleIcon className="w-8 h-8" />
@@ -361,24 +362,24 @@ const MapWrapper: React.FC = () => {
       <div ref={mapContainerRef} className={`absolute inset-0 z-0 ${currentMode !== 'none' ? 'cursor-crosshair' : ''}`} />
       <style>{`
         .css-icon-pulse {
-            background-color: #4299e1;
+            background-color: #00E5FF;
             border-radius: 50%;
             border: 2px solid #fff;
-            box-shadow: 0 0 0 0 rgba(66, 153, 225, 1);
+            box-shadow: 0 0 0 0 rgba(0, 229, 255, 1);
             animation: pulse 2s infinite;
         }
         @keyframes pulse {
             0% {
                 transform: scale(0.95);
-                box-shadow: 0 0 0 0 rgba(66, 153, 225, 0.7);
+                box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.7);
             }
             70% {
                 transform: scale(1.5);
-                box-shadow: 0 0 0 10px rgba(66, 153, 225, 0);
+                box-shadow: 0 0 0 10px rgba(0, 229, 255, 0);
             }
             100% {
                 transform: scale(0.95);
-                box-shadow: 0 0 0 0 rgba(66, 153, 225, 0);
+                box-shadow: 0 0 0 0 rgba(0, 229, 255, 0);
             }
         }
       `}</style>
@@ -389,22 +390,22 @@ const MapWrapper: React.FC = () => {
         </div>
       )}
       <div className="absolute top-20 right-4 z-[1000] flex flex-col gap-3">
-        <button onClick={() => mapRef.current?.locate({ setView: true, maxZoom: 16 })} className="bg-white p-2 rounded-full shadow-lg">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="black" className="w-6 h-6"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path fillRule="evenodd" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-2.25a6.75 6.75 0 1 1 0-13.5 6.75 6.75 0 0 1 0 13.5Z" clipRule="evenodd" /></svg>
+        <button onClick={() => mapRef.current?.locate({ setView: true, maxZoom: 16 })} className="bg-brand-secondary/80 backdrop-blur-md p-2 rounded-full shadow-lg">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#E6EDF3" className="w-6 h-6"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" /><path fillRule="evenodd" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-2.25a6.75 6.75 0 1 1 0-13.5 6.75 6.75 0 0 1 0 13.5Z" clipRule="evenodd" /></svg>
         </button>
-        <button onClick={handleFilterPanelToggle} className={`p-2 rounded-full shadow-lg transition-colors ${showHeatmap ? 'bg-brand-accent text-white' : 'bg-white text-black'}`}>
+        <button onClick={handleFilterPanelToggle} className={`p-2 rounded-full shadow-lg transition-colors ${showHeatmap ? 'bg-brand-accent text-brand-primary' : 'bg-brand-secondary/80 backdrop-blur-md text-text-primary'}`}>
           <FireIcon className="w-6 h-6" />
         </button>
       </div>
 
       {isFilterPanelOpen && (
-        <div className="absolute top-36 right-4 z-[1000] bg-brand-secondary/90 backdrop-blur-sm p-3 rounded-lg shadow-lg max-w-xs w-52 animate-fade-in-down">
-          <div className="flex justify-between items-center border-b border-gray-600 pb-2 mb-2">
-            <p className="text-sm font-semibold text-white">Heatmap Options</p>
-            <button onClick={() => setIsFilterPanelOpen(false)} className="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
+        <div className="absolute top-36 right-4 z-[1000] bg-brand-secondary/80 backdrop-blur-md border border-brand-accent/20 p-3 rounded-lg shadow-lg max-w-xs w-52 animate-fade-in-down">
+          <div className="flex justify-between items-center border-b border-gray-700 pb-2 mb-2">
+            <p className="text-sm font-semibold text-text-primary">Heatmap Options</p>
+            <button onClick={() => setIsFilterPanelOpen(false)} className="text-text-secondary hover:text-text-primary text-2xl leading-none">&times;</button>
           </div>
           
-          <label className="flex items-center justify-between cursor-pointer text-gray-200 hover:text-white py-1">
+          <label className="flex items-center justify-between cursor-pointer text-text-primary hover:text-white py-1">
             <span className="text-sm font-medium">Enable Heatmap</span>
             <div className="relative">
                 <input
@@ -418,10 +419,10 @@ const MapWrapper: React.FC = () => {
           </label>
 
           <div className={`mt-2 transition-opacity ${showHeatmap ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-             <p className="text-sm font-semibold mb-2 text-white pt-2 border-t border-gray-600">Vibe Filters</p>
+             <p className="text-sm font-semibold mb-2 text-text-primary pt-2 border-t border-gray-700">Vibe Filters</p>
              <div className="flex flex-col space-y-1">
                 {Object.entries(VIBE_CONFIG).map(([vibeType, config]) => (
-                  <label key={vibeType} className="flex items-center space-x-2 cursor-pointer text-gray-200 hover:text-white">
+                  <label key={vibeType} className="flex items-center space-x-2 cursor-pointer text-text-secondary hover:text-text-primary">
                     <input
                       type="checkbox"
                       checked={heatmapFilters.has(vibeType as VibeType)}

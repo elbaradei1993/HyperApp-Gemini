@@ -10,13 +10,20 @@ import LiveAssistantModal from '../components/services/LiveAssistantModal';
 
 // --- Shared Vibe Configuration ---
 const VIBE_CONFIG: Record<string, { emoji: string; textClass: string; bgClass: string; barClass: string; displayName: string; }> = {
-  [VibeType.Safe]: { emoji: '😊', textClass: 'text-green-300', bgClass: 'bg-green-500/20', barClass: 'bg-green-500', displayName: 'Safe' },
-  [VibeType.Calm]: { emoji: '😌', textClass: 'text-blue-300', bgClass: 'bg-blue-500/20', barClass: 'bg-blue-500', displayName: 'Calm' },
-  [VibeType.Noisy]: { emoji: '🔊', textClass: 'text-yellow-300', bgClass: 'bg-yellow-500/20', barClass: 'bg-yellow-500', displayName: 'Noisy' },
+  [VibeType.Safe]: { emoji: '😊', textClass: 'text-emerald-300', bgClass: 'bg-emerald-500/20', barClass: 'bg-emerald-500', displayName: 'Safe' },
+  [VibeType.Calm]: { emoji: '😌', textClass: 'text-cyan-300', bgClass: 'bg-cyan-500/20', barClass: 'bg-brand-accent', displayName: 'Calm' },
+  [VibeType.Noisy]: { emoji: '🔊', textClass: 'text-amber-300', bgClass: 'bg-amber-500/20', barClass: 'bg-amber-500', displayName: 'Noisy' },
   [VibeType.LGBTQIAFriendly]: { emoji: '🏳️‍🌈', textClass: 'text-purple-300', bgClass: 'bg-purple-500/20', barClass: 'bg-purple-500', displayName: 'LGBTQIA+ Friendly' },
   [VibeType.Suspicious]: { emoji: '🤨', textClass: 'text-orange-300', bgClass: 'bg-orange-500/20', barClass: 'bg-orange-500', displayName: 'Suspicious' },
-  [VibeType.Dangerous]: { emoji: '😠', textClass: 'text-red-300', bgClass: 'bg-red-500/20', barClass: 'bg-red-500', displayName: 'Dangerous' },
+  [VibeType.Dangerous]: { emoji: '😠', textClass: 'text-fuchsia-400', bgClass: 'bg-fuchsia-500/20', barClass: 'bg-brand-danger', displayName: 'Dangerous' },
 };
+
+const Card: React.FC<{children: React.ReactNode, className?: string}> = ({ children, className }) => (
+    <div className={`bg-brand-secondary/40 backdrop-blur-sm border border-gray-700/50 rounded-lg p-4 ${className}`}>
+        {children}
+    </div>
+);
+
 
 // --- Briefing Components ---
 const WeatherWidget: React.FC<{ weather: WeatherInfo }> = ({ weather }) => {
@@ -32,10 +39,10 @@ const WeatherWidget: React.FC<{ weather: WeatherInfo }> = ({ weather }) => {
 
     return (
         <div className="bg-brand-primary/50 p-3 rounded-lg flex items-center space-x-4">
-            <WeatherIcon className="w-10 h-10 text-blue-300 flex-shrink-0" />
+            <WeatherIcon className="w-10 h-10 text-brand-accent flex-shrink-0" />
             <div>
-                <p className="font-bold text-white text-lg">{weather.text}</p>
-                <p className="text-xs text-gray-400">Current Conditions</p>
+                <p className="font-bold text-text-primary text-lg">{weather.text}</p>
+                <p className="text-xs text-text-secondary">Current Conditions</p>
             </div>
         </div>
     );
@@ -44,8 +51,8 @@ const WeatherWidget: React.FC<{ weather: WeatherInfo }> = ({ weather }) => {
 const NewsCard: React.FC<{ item: NewsItem; onClick: () => void }> = ({ item, onClick }) => {
     return (
         <button onClick={onClick} className="w-full text-left bg-brand-primary/50 p-3 rounded-lg hover:bg-gray-800 transition-colors">
-            <h4 className="font-bold text-white">{item.headline}</h4>
-            <p className="text-sm text-gray-400 mt-1">{item.summary}</p>
+            <h4 className="font-bold text-text-primary">{item.headline}</h4>
+            <p className="text-sm text-text-secondary mt-1">{item.summary}</p>
         </button>
     );
 };
@@ -54,19 +61,19 @@ const NewsDetailsModal: React.FC<{ item: NewsItem | null; onClose: () => void }>
     if (!item) return null;
     return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-brand-secondary rounded-lg shadow-xl w-full max-w-lg p-6" onClick={e => e.stopPropagation()}>
+            <div className="bg-brand-secondary/80 backdrop-blur-lg border border-brand-accent/20 rounded-lg shadow-xl w-full max-w-lg p-6" onClick={e => e.stopPropagation()}>
                 <h2 className="text-2xl font-bold mb-4">{item.headline}</h2>
                 <div className="max-h-[50vh] overflow-y-auto pr-2 space-y-4">
-                    <p className="text-gray-300 whitespace-pre-wrap">{item.summary}</p>
+                    <p className="text-text-secondary whitespace-pre-wrap">{item.summary}</p>
                 </div>
                 <div className="mt-6 flex space-x-2">
-                    <button onClick={onClose} className="flex-1 bg-gray-600 text-white font-bold py-2 px-4 rounded-md hover:bg-gray-500">Close</button>
+                    <button onClick={onClose} className="flex-1 bg-gray-600 text-text-primary font-bold py-2 px-4 rounded-md hover:bg-gray-500">Close</button>
                     {item.sourceURL && (
                       <a 
                           href={item.sourceURL} 
                           target="_blank" 
                           rel="noopener noreferrer"
-                          className="flex-1 text-center bg-brand-accent text-white font-bold py-2 px-4 rounded-md hover:bg-blue-600"
+                          className="flex-1 text-center bg-brand-accent text-brand-primary font-bold py-2 px-4 rounded-md hover:bg-cyan-400"
                       >
                           Read Full Story
                       </a>
@@ -139,13 +146,13 @@ const Pulse: React.FC = () => {
         }, {});
         const total = nearbyVibes.length;
         const breakdown = Object.fromEntries(
-            // FIX: Cast count to number to ensure type safety in arithmetic operation.
+            // FIX: Add type assertion to 'count' to resolve arithmetic operation error.
             Object.entries(vibeCounts).map(([type, count]) => [type, ((count as number) / total) * 100])
         );
-        // FIX: Cast countA and countB to number to ensure type safety in sort comparison.
+        // FIX: Add type assertions to 'countA' and 'countB' to resolve arithmetic operation error in sort.
         const dominantVibeEntry = Object.entries(vibeCounts).sort(([, countA], [, countB]) => (countB as number) - (countA as number))[0];
         setAreaVibeStats({
-            // FIX: Cast dominantVibeEntry[1] to number to ensure type safety in percentage calculation.
+            // FIX: Add type assertion to 'dominantVibeEntry[1]' to resolve arithmetic operation error.
             dominant: { type: dominantVibeEntry[0] as VibeType, percentage: ((dominantVibeEntry[1] as number) / total) * 100 },
             breakdown, total
         });
@@ -171,9 +178,8 @@ const Pulse: React.FC = () => {
         const ai = new GoogleGenAI({ apiKey });
         const timeOfDay = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
         const breakdownText = Object.entries(areaVibeStats.breakdown)
-            // FIX: Cast p to number to ensure type safety in comparison.
+            // FIX: Add type assertions to 'p' to resolve comparison and method call errors.
             .filter(([, p]) => (p as number) > 0)
-            // FIX: Cast p to number to use toFixed method.
             .map(([type, p]) => `${(p as number).toFixed(0)}% ${VIBE_CONFIG[type]?.displayName || type}`).join(', ');
         let context = `--- CONTEXT ---\n- Time: ${timeOfDay}\n- Community Vibe: ${breakdownText}\n`;
         if (nearbyPlaces.length > 0) context += `- Nearby Places: ${nearbyPlaces.slice(0, 5).join(', ')}\n`;
@@ -197,10 +203,10 @@ const Pulse: React.FC = () => {
   return (
     <div className="p-4 space-y-6">
       
-      <div className="bg-brand-secondary p-4 rounded-lg space-y-4">
-          <h1 className="text-2xl font-bold text-white">Live Community Briefing</h1>
+      <Card className="space-y-4">
+          <h1 className="text-2xl font-bold text-text-primary">Live Community Briefing</h1>
           {(liveBriefingLoading && !liveBriefing) ? (
-              <p className="text-gray-400 text-center py-4">Generating your live briefing...</p>
+              <p className="text-text-secondary text-center py-4">Generating your live briefing...</p>
           ) : liveBriefingError ? (
               <p className="bg-red-500/20 text-red-300 p-3 rounded-md text-center">{liveBriefingError}</p>
           ) : liveBriefing ? (
@@ -212,76 +218,74 @@ const Pulse: React.FC = () => {
                               <NewsCard key={index} item={item} onClick={() => setSelectedNewsItem(item)} />
                           ))
                      ) : (
-                          <p className="text-gray-400 text-center py-2">No significant news to report in your area right now.</p>
+                          <p className="text-text-secondary text-center py-2">No significant news to report in your area right now.</p>
                      )}
                   </div>
               </div>
-          ) : <p className="text-gray-400 text-center py-4">Getting your location to generate briefing...</p>}
-      </div>
+          ) : <p className="text-text-secondary text-center py-4">Getting your location to generate briefing...</p>}
+      </Card>
 
-      <div className="bg-brand-secondary p-4 rounded-lg space-y-4">
+      <Card className="space-y-4">
         {dataError && <div className="bg-red-500/20 text-red-300 p-3 rounded-md">{dataError}</div>}
-        <div className="flex items-center space-x-2 text-gray-400">
+        <div className="flex items-center space-x-2 text-text-secondary">
             <LocationMarkerIcon className="w-5 h-5 flex-shrink-0" />
             <span className="text-sm">{!currentAddress ? <SkeletonLoader /> : currentAddress}</span>
         </div>
         
         <div className="space-y-2">
            {(dataLoading || !areaVibeStats) ? (
-                <h2 className="text-lg font-semibold text-white">Analyzing Local Vibe...</h2>
+                <h2 className="text-lg font-semibold text-text-primary">Analyzing Local Vibe...</h2>
             ) : areaVibeStats.dominant ? (
                 <div className="flex items-center space-x-3">
                     <span className="text-3xl">{VIBE_CONFIG[areaVibeStats.dominant.type]?.emoji}</span>
                     <div>
-                        <h2 className="text-lg font-semibold text-white">
+                        <h2 className="text-lg font-semibold text-text-primary">
                             Dominant Vibe: <span className={VIBE_CONFIG[areaVibeStats.dominant.type]?.textClass}>{VIBE_CONFIG[areaVibeStats.dominant.type]?.displayName}</span>
                         </h2>
-                        <p className="text-xs text-gray-400">({areaVibeStats.dominant.percentage.toFixed(0)}% of reports in this area)</p>
+                        <p className="text-xs text-text-secondary">({areaVibeStats.dominant.percentage.toFixed(0)}% of reports in this area)</p>
                     </div>
                 </div>
             ) : (
-                <h2 className="text-lg font-semibold text-white">Current Vibe Breakdown</h2>
+                <h2 className="text-lg font-semibold text-text-primary">Current Vibe Breakdown</h2>
             )}
            {(dataLoading || !areaVibeStats) ? (
             <div className="space-y-3 pt-2"><div className="h-6 bg-gray-600 rounded w-1/2 animate-pulse"></div><div className="h-2 bg-gray-600 rounded w-full animate-pulse"></div></div>
           ) : areaVibeStats.total > 0 ? (
             <div>
               <div className="flex h-2 rounded-full overflow-hidden bg-gray-700 mt-2">
-                 {/* FIX: Cast valA and valB to number for sorting comparison. */}
+                 {/* FIX: Add type assertions to resolve arithmetic and comparison errors. */}
                  {Object.entries(areaVibeStats.breakdown).sort(([, valA], [, valB]) => (valB as number) - (valA as number)).map(([type, percentage]) => {
                     const config = VIBE_CONFIG[type];
-                    // FIX: Cast percentage to number for comparison.
                     if (!config || (percentage as number) <= 0) return null;
-                    // FIX: Cast percentage to number to use toFixed method.
-                    return <div key={type} className={config.barClass} style={{ width: `${percentage}%` }} title={`${config.displayName}: ${(percentage as number).toFixed(1)}%`}></div>
+                    return <div key={type} className={config.barClass} style={{ width: `${(percentage as number).toFixed(1)}%` }} title={`${config.displayName}: ${(percentage as number).toFixed(1)}%`}></div>
                  })}
               </div>
               <p className="text-xs text-gray-500 text-right mt-1">Based on {areaVibeStats.total} report{areaVibeStats.total > 1 ? 's' : ''}</p>
             </div>
           ) : (
-            <p className="text-gray-400 text-sm">No vibes reported in this area yet.</p>
+            <p className="text-text-secondary text-sm">No vibes reported in this area yet.</p>
           )}
         </div>
 
         <div className="space-y-2 pt-2 border-t border-gray-700/50">
-            <div className="flex items-center space-x-2 text-gray-400">
+            <div className="flex items-center space-x-2 text-text-secondary">
                 <LightBulbIcon className="w-5 h-5 flex-shrink-0"/>
-                <h2 className="text-lg font-semibold text-white">Smart Vibe Explanation</h2>
+                <h2 className="text-lg font-semibold text-text-primary">Smart Vibe Explanation</h2>
             </div>
             {adviceLoading ? (
               <SkeletonLoader />
             ) : (
-              <p className="text-gray-300 italic min-h-[4rem] whitespace-pre-wrap">
+              <p className="text-text-secondary italic min-h-[4rem] whitespace-pre-wrap">
                 {safetyAdvice}
               </p>
             )}
         </div>
-      </div>
+      </Card>
 
-      <div className="bg-red-900/50 p-4 rounded-lg border border-red-500/30">
-        <h2 className="text-lg font-semibold text-red-200">Emergency Assistance</h2>
-        <p className="text-sm text-red-300 mb-3">If you are in danger, connect to our live AI assistant for immediate help.</p>
-        <button onClick={() => setIsAssistantOpen(true)} className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-md hover:bg-red-700 transition-colors flex items-center justify-center space-x-2">
+      <div className="bg-brand-danger/10 p-4 rounded-lg border border-brand-danger/30">
+        <h2 className="text-lg font-semibold text-fuchsia-200">Emergency Assistance</h2>
+        <p className="text-sm text-fuchsia-300 mb-3">If you are in danger, connect to our live AI assistant for immediate help.</p>
+        <button onClick={() => setIsAssistantOpen(true)} className="w-full bg-brand-danger text-white font-bold py-3 px-4 rounded-md hover:bg-fuchsia-500 transition-colors flex items-center justify-center space-x-2">
             <MicrophoneIcon className="w-6 h-6" />
             <span>START LIVE ASSISTANCE</span>
         </button>

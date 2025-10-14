@@ -24,12 +24,12 @@ const PersonalActivityCard: React.FC<{ item: UserActivityItem; onDelete: () => v
             details = timeAgo(item.created_at);
             break;
         case 'sos':
-            icon = <ExclamationTriangleIcon className="w-5 h-5 text-red-400" />;
+            icon = <ExclamationTriangleIcon className="w-5 h-5 text-brand-danger" />;
             title = `You sent an SOS alert.`;
             details = `"${item.details}" • ${timeAgo(item.created_at)}`;
             break;
         case 'event':
-            icon = <UserGroupIcon className="w-5 h-5 text-blue-400" />;
+            icon = <UserGroupIcon className="w-5 h-5 text-brand-accent" />;
             title = `You created the event: ${item.title}`;
             details = new Date(item.event_time).toLocaleDateString();
             break;
@@ -40,16 +40,22 @@ const PersonalActivityCard: React.FC<{ item: UserActivityItem; onDelete: () => v
             <div className="flex-shrink-0">{icon}</div>
             <div className="flex-grow">
                 <p className="font-semibold text-sm">{title}</p>
-                <p className="text-xs text-gray-400">{details}</p>
+                <p className="text-xs text-text-secondary">{details}</p>
             </div>
             {canDelete && (
-                <button onClick={onDelete} className="text-gray-500 hover:text-red-400 p-1">
+                <button onClick={onDelete} className="text-gray-500 hover:text-brand-danger p-1">
                     <TrashIcon className="w-4 h-4" />
                 </button>
             )}
         </div>
     );
 };
+
+const Card: React.FC<{children: React.ReactNode, className?: string}> = ({ children, className }) => (
+    <div className={`bg-brand-secondary/40 backdrop-blur-sm border border-gray-700/50 rounded-lg p-4 ${className}`}>
+        {children}
+    </div>
+);
 
 
 const Account: React.FC = () => {
@@ -220,73 +226,75 @@ const Account: React.FC = () => {
       }
   }
 
-  if (loading) return <div className="p-4 text-white text-center">Loading profile...</div>;
+  if (loading) return <div className="p-4 text-text-primary text-center">Loading profile...</div>;
 
   return (
     <div className="p-4 space-y-6">
         {isEditing ? (
-            <form onSubmit={handleUpdateProfile} className="bg-brand-secondary p-4 rounded-lg space-y-4 animate-fade-in">
+            <Card className="animate-fade-in space-y-4">
                 <h2 className="text-xl font-semibold">Edit Profile</h2>
-                <div className="flex items-center space-x-4">
-                    <img src={avatarUrl || `https://api.dicebear.com/8.x/initials/svg?seed=${username}`} alt="Avatar" className="w-20 h-20 rounded-full object-cover bg-gray-700" />
-                    <div>
-                        <label htmlFor="avatar-upload" className="text-sm font-semibold bg-gray-600 px-3 py-2 rounded-md cursor-pointer hover:bg-gray-500">{uploading ? 'Uploading...' : 'Change Photo'}</label>
-                        <input type="file" id="avatar-upload" accept="image/*" className="hidden" onChange={uploadAvatar} disabled={uploading} />
+                <form onSubmit={handleUpdateProfile} className="space-y-4">
+                    <div className="flex items-center space-x-4">
+                        <img src={avatarUrl || `https://api.dicebear.com/8.x/initials/svg?seed=${username}`} alt="Avatar" className="w-20 h-20 rounded-full object-cover bg-gray-700" />
+                        <div>
+                            <label htmlFor="avatar-upload" className="text-sm font-semibold bg-gray-600 px-3 py-2 rounded-md cursor-pointer hover:bg-gray-500">{uploading ? 'Uploading...' : 'Change Photo'}</label>
+                            <input type="file" id="avatar-upload" accept="image/*" className="hidden" onChange={uploadAvatar} disabled={uploading} />
+                        </div>
                     </div>
-                </div>
-                <div>
-                  <label htmlFor="username" className="block text-sm font-medium text-gray-400">Username</label>
-                  <input id="username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} required className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" />
-                </div>
-                <div>
-                  <label htmlFor="fullName" className="block text-sm font-medium text-gray-400">Full Name</label>
-                  <input id="fullName" type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" />
-                </div>
-                <div>
-                  <label htmlFor="bio" className="block text-sm font-medium text-gray-400">Bio</label>
-                  <textarea id="bio" value={bio} onChange={e => setBio(e.target.value)} rows={3} className="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm" />
-                </div>
-                <div className="flex space-x-2">
-                    <button type="submit" disabled={loading} className="flex-1 bg-brand-accent text-white font-bold py-2 px-4 rounded-md hover:bg-blue-600">Save Changes</button>
-                    <button type="button" onClick={() => handleEditToggle(true)} className="flex-1 bg-gray-600 text-white font-bold py-2 px-4 rounded-md">Cancel</button>
-                </div>
-            </form>
+                    <div>
+                      <label htmlFor="username" className="block text-sm font-medium text-text-secondary">Username</label>
+                      <input id="username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} required className="mt-1 block w-full bg-gray-800 border-gray-600 rounded-md shadow-sm" />
+                    </div>
+                    <div>
+                      <label htmlFor="fullName" className="block text-sm font-medium text-text-secondary">Full Name</label>
+                      <input id="fullName" type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="mt-1 block w-full bg-gray-800 border-gray-600 rounded-md shadow-sm" />
+                    </div>
+                    <div>
+                      <label htmlFor="bio" className="block text-sm font-medium text-text-secondary">Bio</label>
+                      <textarea id="bio" value={bio} onChange={e => setBio(e.target.value)} rows={3} className="mt-1 block w-full bg-gray-800 border-gray-600 rounded-md shadow-sm" />
+                    </div>
+                    <div className="flex space-x-2">
+                        <button type="submit" disabled={loading} className="flex-1 bg-brand-accent text-brand-primary font-bold py-2 px-4 rounded-md hover:bg-cyan-400">Save Changes</button>
+                        <button type="button" onClick={() => handleEditToggle(true)} className="flex-1 bg-gray-600 text-text-primary font-bold py-2 px-4 rounded-md">Cancel</button>
+                    </div>
+                </form>
+            </Card>
         ) : (
             <>
-                <div className="bg-brand-secondary p-4 rounded-lg space-y-3">
+                <Card>
                     <div className="flex items-center space-x-4">
                         <img src={avatarUrl || `https://api.dicebear.com/8.x/initials/svg?seed=${username}`} alt="Avatar" className="w-20 h-20 rounded-full object-cover bg-gray-700" />
                         <div className="flex-grow">
                             <h1 className="text-2xl font-bold">{fullName || 'New User'}</h1>
                             <p className="text-brand-accent">@{username}</p>
-                            <p className="text-sm text-gray-400 mt-1">{bio || 'No bio yet.'}</p>
+                            <p className="text-sm text-text-secondary mt-1">{bio || 'No bio yet.'}</p>
                         </div>
                         <button onClick={() => handleEditToggle()} className="bg-gray-700 text-sm font-semibold px-4 py-2 rounded-md hover:bg-gray-600">Edit Profile</button>
                     </div>
-                </div>
+                </Card>
 
-                <div className="bg-brand-secondary p-4 rounded-lg space-y-3">
+                <Card className="space-y-3">
                     <h2 className="text-xl font-semibold">Your Contributions</h2>
                     <div className="grid grid-cols-3 gap-4 pt-2">
-                        <button onClick={() => setActivityFilter('vibe')} className={`p-2 rounded-lg text-center ${activityFilter === 'vibe' ? 'bg-brand-accent' : 'bg-brand-primary/50'}`}>
+                        <button onClick={() => setActivityFilter('vibe')} className={`p-2 rounded-lg text-center transition-colors ${activityFilter === 'vibe' ? 'bg-brand-accent/20' : 'bg-brand-primary/50'}`}>
                             <FireIcon className="w-6 h-6 text-orange-400 mx-auto" />
                             <p className="text-2xl font-bold mt-1">{myVibes.length}</p>
-                            <p className="text-xs text-gray-400">Vibes</p>
+                            <p className="text-xs text-text-secondary">Vibes</p>
                         </button>
-                         <button onClick={() => setActivityFilter('sos')} className={`p-2 rounded-lg text-center ${activityFilter === 'sos' ? 'bg-brand-accent' : 'bg-brand-primary/50'}`}>
-                            <ExclamationTriangleIcon className="w-6 h-6 text-red-400 mx-auto" />
+                         <button onClick={() => setActivityFilter('sos')} className={`p-2 rounded-lg text-center transition-colors ${activityFilter === 'sos' ? 'bg-brand-accent/20' : 'bg-brand-primary/50'}`}>
+                            <ExclamationTriangleIcon className="w-6 h-6 text-brand-danger mx-auto" />
                             <p className="text-2xl font-bold mt-1">{mySOS.length}</p>
-                            <p className="text-xs text-gray-400">SOS Alerts</p>
+                            <p className="text-xs text-text-secondary">SOS Alerts</p>
                         </button>
-                         <button onClick={() => setActivityFilter('event')} className={`p-2 rounded-lg text-center ${activityFilter === 'event' ? 'bg-brand-accent' : 'bg-brand-primary/50'}`}>
-                            <UserGroupIcon className="w-6 h-6 text-blue-400 mx-auto" />
+                         <button onClick={() => setActivityFilter('event')} className={`p-2 rounded-lg text-center transition-colors ${activityFilter === 'event' ? 'bg-brand-accent/20' : 'bg-brand-primary/50'}`}>
+                            <UserGroupIcon className="w-6 h-6 text-brand-accent mx-auto" />
                             <p className="text-2xl font-bold mt-1">{myCreatedEvents.length}</p>
-                            <p className="text-xs text-gray-400">Events</p>
+                            <p className="text-xs text-text-secondary">Events</p>
                         </button>
                     </div>
-                </div>
+                </Card>
 
-                <div className="bg-brand-secondary p-4 rounded-lg space-y-3">
+                <Card className="space-y-3">
                      <div className="flex justify-between items-center">
                         <h2 className="text-xl font-semibold">Your Activity</h2>
                         {activityFilter !== 'all' && (
@@ -302,38 +310,38 @@ const Account: React.FC = () => {
                             <p className="text-center text-gray-500 py-4">No activity to show for this filter.</p>
                         )}
                     </div>
-                </div>
+                </Card>
                 
-                <div className="bg-brand-secondary p-4 rounded-lg space-y-3">
+                <Card className="space-y-3">
                     <h2 className="text-xl font-semibold">Your Events</h2>
                     <div className="flex space-x-1 bg-brand-primary p-1 rounded-lg">
-                        <button onClick={() => setEventsTab('attending')} className={`flex-1 py-2 text-sm font-semibold rounded-md ${eventsTab === 'attending' ? 'bg-brand-accent' : ''}`}>Attending ({myAttendingEvents.length})</button>
-                        <button onClick={() => setEventsTab('created')} className={`flex-1 py-2 text-sm font-semibold rounded-md ${eventsTab === 'created' ? 'bg-brand-accent' : ''}`}>Created ({myCreatedEvents.length})</button>
+                        <button onClick={() => setEventsTab('attending')} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-colors ${eventsTab === 'attending' ? 'bg-brand-accent text-brand-primary' : ''}`}>Attending ({myAttendingEvents.length})</button>
+                        <button onClick={() => setEventsTab('created')} className={`flex-1 py-2 text-sm font-semibold rounded-md transition-colors ${eventsTab === 'created' ? 'bg-brand-accent text-brand-primary' : ''}`}>Created ({myCreatedEvents.length})</button>
                     </div>
                     <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
                         {(eventsTab === 'attending' ? myAttendingEvents : myCreatedEvents).length > 0 ? (
                             (eventsTab === 'attending' ? myAttendingEvents : myCreatedEvents).map(event => (
                                 <div key={event.id} className="bg-brand-primary/50 p-3 rounded-lg">
                                     <p className="font-semibold">{event.title}</p>
-                                    <p className="text-xs text-gray-400">{new Date(event.event_time).toLocaleString()}</p>
+                                    <p className="text-xs text-text-secondary">{new Date(event.event_time).toLocaleString()}</p>
                                 </div>
                             ))
                         ) : (
                              <p className="text-center text-gray-500 py-4">No events in this category.</p>
                         )}
                     </div>
-                </div>
+                </Card>
 
-                <div className="bg-brand-secondary p-4 rounded-lg space-y-4">
+                <Card className="space-y-4">
                     <h2 className="text-xl font-semibold">Your Safe Zones</h2>
                     <div className="space-y-2">
                         {safeZones.map(zone => (
                             <div key={zone.id} className="flex justify-between items-center bg-gray-700 p-3 rounded-md">
                                 <p className="font-medium">{zone.name}</p>
-                                <button onClick={() => handleDeleteSafeZone(zone.id)} className="text-gray-400 hover:text-red-400 p-1"><TrashIcon className="w-5 h-5"/></button>
+                                <button onClick={() => handleDeleteSafeZone(zone.id)} className="text-text-secondary hover:text-brand-danger p-1"><TrashIcon className="w-5 h-5"/></button>
                             </div>
                         ))}
-                        {safeZones.length === 0 && <p className="text-gray-500 text-sm text-center py-4">No safe zones created.</p>}
+                        {safeZones.length === 0 && <p className="text-text-secondary text-sm text-center py-4">No safe zones created.</p>}
                     </div>
                     {isAddingZone ? (
                         <form onSubmit={handleAddSafeZone} className="pt-4 border-t border-gray-700 space-y-3">
@@ -346,7 +354,7 @@ const Account: React.FC = () => {
                             <PlusCircleIcon className="w-5 h-5" /><span>Add Safe Zone</span>
                         </button>
                     )}
-                </div>
+                </Card>
             </>
         )}
     </div>

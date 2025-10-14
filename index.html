@@ -25,9 +25,12 @@
         theme: {
           extend: {
             colors: {
-              'brand-primary': '#1a202c',
-              'brand-secondary': '#2d3748',
-              'brand-accent': '#4299e1',
+              'brand-primary': '#0D1117',
+              'brand-secondary': '#161B22',
+              'brand-accent': '#00E5FF',
+              'brand-danger': '#FF00C1',
+              'text-primary': '#E6EDF3',
+              'text-secondary': '#8B949E',
             }
           }
         }
@@ -40,6 +43,20 @@
         margin: 0;
         padding: 0;
         overflow: hidden; /* Prevents unwanted scrolling on the body */
+      }
+      body {
+        background: linear-gradient(180deg, #161B22 0%, #0D1117 100%);
+      }
+      @keyframes pulse-glow {
+        0%, 100% {
+          box-shadow: 0 0 5px #00E5FF, 0 0 8px #00E5FF;
+        }
+        50% {
+          box-shadow: 0 0 12px #00E5FF, 0 0 18px #00E5FF;
+        }
+      }
+      .animate-pulse-glow {
+        animation: pulse-glow 2.5s infinite ease-in-out;
       }
     </style>
   <script type="importmap">
@@ -55,8 +72,19 @@
 }
 </script>
 </head>
-  <body class="bg-brand-primary text-white antialiased">
+  <body class="bg-brand-primary text-text-primary antialiased">
     <div id="root"></div>
-    <script type="module" src="./index.tsx"></script>
+    <script type="module" src="/index.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').then(registration => {
+            console.log('ServiceWorker registration successful with scope: ', registration.scope);
+          }, err => {
+            console.log('ServiceWorker registration failed: ', err);
+          });
+        });
+      }
+    </script>
   </body>
 </html>

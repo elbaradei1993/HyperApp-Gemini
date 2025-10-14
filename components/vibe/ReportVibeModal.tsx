@@ -10,12 +10,12 @@ interface ReportVibeModalProps {
 }
 
 const VIBE_CONFIG: Record<string, { emoji: string; textClass: string; bgClass: string; displayName: string; }> = {
-  [VibeType.Safe]: { emoji: '😊', textClass: 'text-green-300', bgClass: 'bg-green-500/20', displayName: 'Safe' },
-  [VibeType.Calm]: { emoji: '😌', textClass: 'text-blue-300', bgClass: 'bg-blue-500/20', displayName: 'Calm' },
-  [VibeType.Noisy]: { emoji: '🔊', textClass: 'text-yellow-300', bgClass: 'bg-yellow-500/20', displayName: 'Noisy' },
+  [VibeType.Safe]: { emoji: '😊', textClass: 'text-emerald-300', bgClass: 'bg-emerald-500/20', displayName: 'Safe' },
+  [VibeType.Calm]: { emoji: '😌', textClass: 'text-cyan-300', bgClass: 'bg-cyan-500/20', displayName: 'Calm' },
+  [VibeType.Noisy]: { emoji: '🔊', textClass: 'text-amber-300', bgClass: 'bg-amber-500/20', displayName: 'Noisy' },
   [VibeType.LGBTQIAFriendly]: { emoji: '🏳️‍🌈', textClass: 'text-purple-300', bgClass: 'bg-purple-500/20', displayName: 'LGBTQIA+ Friendly' },
   [VibeType.Suspicious]: { emoji: '🤨', textClass: 'text-orange-300', bgClass: 'bg-orange-500/20', displayName: 'Suspicious' },
-  [VibeType.Dangerous]: { emoji: '😠', textClass: 'text-red-300', bgClass: 'bg-red-500/20', displayName: 'Dangerous' },
+  [VibeType.Dangerous]: { emoji: '😠', textClass: 'text-fuchsia-400', bgClass: 'bg-fuchsia-500/20', displayName: 'Dangerous' },
 };
 
 const ReportVibeModal: React.FC<ReportVibeModalProps> = ({ isOpen, onClose }) => {
@@ -69,15 +69,15 @@ const ReportVibeModal: React.FC<ReportVibeModalProps> = ({ isOpen, onClose }) =>
         className={`fixed inset-0 bg-black/70 flex items-end justify-center z-[1000] p-4 transition-opacity duration-300 ${isOpen && !isClosing ? 'opacity-100' : 'opacity-0'}`}
         onClick={handleClose}
     >
-      {toast && <div className="bg-brand-accent p-3 rounded-md fixed top-20 left-4 right-4 z-[100] shadow-lg animate-fade-in-down">{toast}</div>}
+      {toast && <div className="bg-brand-accent text-brand-primary font-semibold p-3 rounded-md fixed top-20 left-4 right-4 z-[100] shadow-lg animate-fade-in-down">{toast}</div>}
       <div 
-        className={`bg-brand-secondary rounded-lg shadow-xl w-full max-w-md relative transition-transform duration-300 ${isOpen && !isClosing ? 'translate-y-0' : 'translate-y-full'}`}
+        className={`bg-brand-secondary/80 backdrop-blur-lg border border-brand-accent/20 rounded-lg shadow-xl w-full max-w-md relative transition-transform duration-300 ${isOpen && !isClosing ? 'translate-y-0' : 'translate-y-full'}`}
         onClick={e => e.stopPropagation()}
       >
         <div className="p-6 space-y-4">
             <div className="text-center">
-                <h2 className="text-2xl font-bold text-white">Report a Vibe</h2>
-                <p className="text-sm text-gray-400">What's the pulse of your current location?</p>
+                <h2 className="text-2xl font-bold text-text-primary">Report a Vibe</h2>
+                <p className="text-sm text-text-secondary">What's the pulse of your current location?</p>
                 <p className="text-xs text-gray-500 mt-1 truncate">{currentAddress || "Getting your location..."}</p>
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
@@ -88,7 +88,7 @@ const ReportVibeModal: React.FC<ReportVibeModalProps> = ({ isOpen, onClose }) =>
                     </button>
                 ))}
             </div>
-            <button onClick={handleClose} className="w-full mt-2 bg-gray-700 text-white font-bold py-3 px-4 rounded-md hover:bg-gray-600">
+            <button onClick={handleClose} className="w-full mt-2 bg-gray-700 text-text-primary font-bold py-3 px-4 rounded-md hover:bg-gray-600">
                 Cancel
             </button>
         </div>

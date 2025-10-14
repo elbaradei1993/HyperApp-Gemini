@@ -22,7 +22,7 @@ const NavItem: React.FC<{ path: string; label: string; icon: React.FC<any> }> = 
     end
     className={({ isActive }) =>
       `flex flex-col items-center justify-center w-full h-full transition-colors duration-200 ${
-        isActive ? 'text-brand-accent' : 'text-gray-400 hover:text-white'
+        isActive ? 'text-brand-accent' : 'text-text-secondary hover:text-text-primary'
       }`
     }
   >
@@ -33,14 +33,14 @@ const NavItem: React.FC<{ path: string; label: string; icon: React.FC<any> }> = 
 
 const BottomNavbar: React.FC<BottomNavbarProps> = ({ onReportVibeClick }) => {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-brand-secondary border-t border-gray-700 shadow-lg z-50">
+    <nav className="fixed bottom-0 left-0 right-0 bg-brand-secondary/70 backdrop-blur-md border-t border-brand-accent/20 shadow-lg z-50">
       <div className="max-w-md mx-auto flex justify-around items-center h-16">
         {leftNavItems.map(item => <NavItem key={item.path} {...item} />)}
         
         <div className="w-1/5 flex justify-center">
           <button
             onClick={onReportVibeClick}
-            className="bg-brand-accent text-white rounded-full w-14 h-14 flex items-center justify-center -mt-8 shadow-lg border-4 border-brand-secondary hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-brand-secondary focus:ring-brand-accent transform transition-transform hover:scale-110"
+            className="bg-brand-accent text-white rounded-full w-14 h-14 flex items-center justify-center -mt-8 shadow-lg border-4 border-brand-secondary hover:bg-cyan-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-brand-secondary focus:ring-brand-accent transform transition-transform hover:scale-110 animate-pulse-glow"
             aria-label="Report a Vibe"
           >
             <PlusIcon className="w-8 h-8" />
