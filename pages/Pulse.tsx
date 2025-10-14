@@ -128,7 +128,7 @@ const Pulse: React.FC = () => {
   }, [currentLocation]);
 
   useEffect(() => {
-    if (!currentLocation || dataLoading) return;
+    if (!currentLocation) return;
     const nearbyVibes = vibes.filter(vibe => haversineDistance(currentLocation, vibe.location) <= 1);
     if (nearbyVibes.length === 0) {
         setAreaVibeStats({ dominant: null, breakdown: {}, total: 0 });
@@ -150,7 +150,7 @@ const Pulse: React.FC = () => {
             breakdown, total
         });
     }
-  }, [vibes, currentLocation, dataLoading]);
+  }, [vibes, currentLocation]);
 
   useEffect(() => {
     const generateAdvice = async () => {

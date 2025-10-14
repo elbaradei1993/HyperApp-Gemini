@@ -158,17 +158,25 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const { data, error: rpcError } = await supabase.rpc('get_all_public_data');
       if (rpcError) throw rpcError;
-      const responseData = data || {};
-      setVibes((responseData.vibes || []).map(processRecord).filter(Boolean) as Vibe[]);
-      setSos((responseData.sos || []).map(processRecord).filter(Boolean) as SOS[]);
-      setEvents((responseData.events || []).map(processRecord).filter(Boolean) as Event[]);
-      setAttendees(responseData.attendees || []);
+
+      // Defensive check: Only update state if data is not null.
+      // This prevents wiping out the UI if the RPC returns an empty success response.
+      if (data) {
+        setError(null); // Clear previous errors on a successful fetch
+        const responseData = data || {};
+        setVibes((responseData.vibes || []).map(processRecord).filter(Boolean) as Vibe[]);
+        setSos((responseData.sos || []).map(processRecord).filter(Boolean) as SOS[]);
+        setEvents((responseData.events || []).map(processRecord).filter(Boolean) as Event[]);
+        setAttendees(responseData.attendees || []);
+      } else {
+        console.warn("Received null data from get_all_public_data RPC. Keeping existing data.");
+      }
     } catch (err: any) {
-      setError(`Error fetching initial data: ${err.message}`);
+      // Don't clear data on error, just show the error message.
+      setError(`Error fetching data: ${err.message}`);
     } finally {
       setLoading(false);
     }
